@@ -70,19 +70,18 @@ def restore_matrices(s,d,D,L):
     
     return x_mu_D_L_list,x_R_L_list
 
+#Def the function generting M_d matrix from mu list
 def generate_M_d(x_mu_D_L_list,d,D,L):
     x_M_D_L_list = [[] for _ in range(D)]
     for l in range(L):
         for q in range(D):
-            M_D_L_matrix = jnp.zeros((d+1, d+1))
-            for i in range(d+1):
-                for j in range(d+1):
-                    mu = jnp.array(x_mu_D_L_list[q][l][i+j], dtype=jnp.float32) 
-                    M_D_L_matrix = M_D_L_matrix.at[i, j].set(mu)
+            indices = jnp.arange(d + 1)
+            i, j = jnp.meshgrid(indices, indices, indexing='ij')
+            M_D_L_matrix = x_mu_D_L_list[q][l][i + j]
             x_M_D_L_list[q].append(M_D_L_matrix)
     return x_M_D_L_list
 
-# Def the function of B.3
+#Def the function of B.3
 def Augmented_Lagrangian(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
     """
     x is the flattend x
@@ -108,10 +107,10 @@ def Augmented_Lagrangian(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_
     x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
 
     #Second term
-    sum_result += term_2(D,L,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient)
+    sum_result += term_2(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient)
     
     #Third term
-    sum_result += term_3(D,L,x_M_D_L_list,x_R_L_list,rho)
+    sum_result += term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,rho)
     return sum_result
 
 #This is the sum of the polynomials
@@ -128,7 +127,7 @@ def term_1(D,L,x_mu_D_L_list,orders_list,coefficients_list):
     return sum
 
 #Lagrangian term
-def term_2(D,L,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
+def term_2(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient):
     
     sum = 0
     # Md(mu_0^(l)) - R_0^l R_0^l.T = 0
@@ -149,12 +148,12 @@ def term_2(D,L,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
     #8 B.2.1.
     for i in range(D):
         for l in range(L):
-            sum+= jaxnp.sum(jaxnp.maximum(0,-x_M_D_L_list[i][l]-1)+jaxnp.maximum(0,x_M_D_L_list[i][l]-1))
+            sum+= jaxnp.sum(jaxnp.maximum(0,-x_mu_D_L_list[i][l]-1)+jaxnp.maximum(0,x_mu_D_L_list[i][l]-1))
     
     return Lagrangian_coefficient*sum
 
 #Penanlty term
-def term_3(D,L,x_M_D_L_list,x_R_L_list,rho):
+def term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,rho):
     sum = 0 
     # Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
@@ -174,7 +173,7 @@ def term_3(D,L,x_M_D_L_list,x_R_L_list,rho):
     # B.2.1.
     for i in range(D):
         for l in range(L):
-                sum+= jaxnp.sum(jaxnp.square(jaxnp.maximum(0,-x_M_D_L_list[i][l]-1)+jaxnp.maximum(0,x_M_D_L_list[i][l]-1)))
+                sum+= jaxnp.sum(jaxnp.square(jaxnp.maximum(0,-x_mu_D_L_list[i][l]-1)+jaxnp.maximum(0,x_mu_D_L_list[i][l]-1)))
     
     return rho/2*sum
 
@@ -210,7 +209,7 @@ def update_Lagrangian_coefficients(d,D,L,x_input,Lagrangian_coefficient,rho):
     #8 B.2.1.
     for i in range(D):
         for l in range(L):
-                sum+= np.sum(np.maximum(0,-x_M_D_L_list[i][l]-1)+np.maximum(0,x_M_D_L_list[i][l]-1))
+                sum+= np.sum(np.maximum(0,-x_mu_D_L_list[i][l]-1)+np.maximum(0,x_mu_D_L_list[i][l]-1))
 
     Lagrangian_coefficient += rho*sum
 
