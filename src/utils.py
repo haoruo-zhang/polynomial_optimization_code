@@ -119,10 +119,11 @@ def phi(n, M, D, L):
     Calculates the sum of the product measures of a monomial given by n
     This corresponds to phi in the paper
 
-    n is the tuple of exponents
-    M is the moment matrix
-    D is the dimension of the hypercube
-    L is the number of product measures
+    arguments:
+    n -- the tuple of exponents
+    M -- the moment matrix
+    D -- the dimension of the hypercube
+    L -- the number of product measures
     """
 
     # Set up array for calculations
@@ -134,6 +135,21 @@ def phi(n, M, D, L):
                             
     # Multiply over the rows, then add up the resulting product measure values
     return np.sum(np.prod(A, axis=1))
+
+def new_objective(coef, powers, M, D, L):
+    """
+    Calculates the objective function given the polynomial and the moment
+    matrix
+
+    arguments:
+    coef -- a list of polynomial coefficients for each power tuple
+    powers -- list of power tuples specifiying the monomial
+    M -- the moment matrix
+    D -- the dimension of the hypercube
+    L -- the number of product measures
+    """
+    # would numpy be faster, or would array creation slow it down?
+    return sum([p_n * phi(n, M, D, L) for p_n, n in zip(coef, powers)])
 
 #This is the sum of the polynomials
 def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
