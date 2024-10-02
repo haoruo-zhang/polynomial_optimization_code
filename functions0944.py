@@ -2,6 +2,7 @@ import numpy as np
 import sympy as sp
 import jax.numpy as jaxnp
 import jax.numpy as jnp
+from jax import grad as jaxgrad
 
 #function generate polynomials
 def g_D_symbolic_coefficients_dict(D):
@@ -213,6 +214,78 @@ def update_Lagrangian_coefficients(d,D,L,x_input,Lagrangian_coefficient,rho):
 
     Lagrangian_coefficient += rho*sum
 
-    return Lagrangian_coefficient
+# def auto_gradient_lag_term(x,y,Lagrangian_coefficient):
+#     return Lagrangian_coefficient*jaxnp.sum(x-jaxnp.dot(y,y.T))
 
+# def auto_gradient_penalty_term(x,y,rho):
+#     return rho/2*jaxnp.sum(jaxnp.square((x-jaxnp.dot(y,y.T))))
+
+#     return Lagrangian_coefficient
+# def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
+#     """
+#     x is the flattend x
+#     D is the number of variables in polynomial
+#     d is the highest order in polynomial
+#     L is the number of measures
+#     orders_list is the list of different terms(e.g. x1^2*x2^2) in polynomials
+#     coefficients_list is the list of coefficients of the above terms
+#     Lagrangian_coefficient is Lagrangian coefficient
+#     rho is the penalty term 
+
+#     """
+#     jacobian_matrix = []
+#     x_mu_D_L_list,x_R_L_list = restore_matrices(x_input, d , D, L)
+#     x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
+
+#     for k in range(D):
+#         for l in range(L):
+#             for i in range(d+1):
+#                 for j in range(d+1):
+#                     jacobian_matrix_sum = 0
+#                     if i<=d and j<=d:
+#                         if i == 0 and j == 0 and k == 0:
+#                             if x_M_D_L_list[k][l][i,j]<0:
+#                                 jacobian_matrix_sum += Lagrangian_coefficient+rho*x_M_D_L_list[k][l][i,j]
+#                             elif x_M_D_L_list[k][l][i,j]>0:
+#                                 jacobian_matrix_sum += Lagrangian_coefficient                           
+#                         elif i == 0 and j == 0 and k!=0:
+#                             jacobian_matrix_sum += Lagrangian_coefficient+rho*(x_M_D_L_list[k][l][i,j]-1)
+#                         measure_moment_orders = i+j
+#                         if measure_moment_orders<=d:
+#                             for o in range(len(orders_list)):
+#                                 if orders_list[o][k]==measure_moment_orders:
+#                                     moments_prodect = 1
+#                                     for p in range(D):
+#                                         if p != k:
+#                                             moments_prodect *= x_M_D_L_list[p][l][0,orders_list[o][p]]
+#                                     jacobian_matrix_sum += coefficients_list[o]*moments_prodect
+#                     jacobian_matrix_sum += Lagrangian_coefficient
+#                     jacobian_matrix.append(jacobian_matrix_sum)
+    
+#     term_2_x_R_L_list = []
+#     for k in range(D):
+#         for l in range(L):
+#             M_D = x_M_D_L_list[k][l]
+#             R_L = x_R_L_list[k][l]
+#             grad_f_y = jaxgrad(auto_gradient_lag_term, argnums=1)
+#             R_L_flatten = np.ravel(grad_f_y(M_D, R_L, Lagrangian_coefficient)).tolist()
+#             term_2_x_R_L_list += R_L_flatten
+#     jacobian_matrix+=term_2_x_R_L_list
+    
+#     term_3_x_M_D_L_list = []
+#     term_3_x_R_L_list = []
+#     for k in range(D):
+#         for l in range(L):
+#             M_D = x_M_D_L_list[k][l]
+#             R_L = x_R_L_list[k][l]
+#             grad_f_x = jaxgrad(auto_gradient_penalty_term, argnums=0)
+#             grad_f_y = jaxgrad(auto_gradient_penalty_term, argnums=1)
+#             M_D_flatten = np.ravel(grad_f_x(M_D, R_L, rho)).tolist()
+#             R_L_flatten = np.ravel(grad_f_y(M_D, R_L, rho)).tolist()
+#             term_3_x_M_D_L_list += M_D_flatten
+#             term_3_x_R_L_list += R_L_flatten
+    
+#     term_3_list = term_3_x_M_D_L_list + term_3_x_R_L_list
+#     result = [a + b for a, b in zip(jacobian_matrix, term_3_list)]
+#     return(result)
 
