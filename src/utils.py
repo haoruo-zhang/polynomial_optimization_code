@@ -83,7 +83,7 @@ def restore(s,d,D,L):
 
 
 # Def the function of B.3
-def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
+def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,gamma):
     """
     x is the flattend x
     D is the number of variables in polynomial
@@ -91,7 +91,7 @@ def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coeffi
     orders_list is the list of different terms(e.g. x1^2*x2^2) in polynomials
     coefficients_list is the list of coefficients of the above terms
     Lagrangian_coefficient is Lagrangian coefficient
-    rho is the penalty term 
+    gamma is penalty parameter
 
     """
     #Before we start, we need to reshape the x input back to the original format, which is the matrix form
@@ -111,7 +111,7 @@ def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coeffi
     sum_result += multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient)
     
     #Third term
-    sum_result += penalty(D,L,d,x_M_D_L_list,x_R_L_list,rho)
+    sum_result += penalty(D,L,d,x_M_D_L_list,x_R_L_list,gamma)
     return sum_result
 
 #This is the sum of the polynomials
@@ -162,7 +162,7 @@ def multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
     return Lagrangian_coefficient*sum
 
 #Penanlty term
-def penalty(D,L,d,x_M_D_L_list,x_R_L_list,rho):
+def penalty(D,L,d,x_M_D_L_list,x_R_L_list,gamma):
     sum = 0 
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
@@ -193,17 +193,17 @@ def penalty(D,L,d,x_M_D_L_list,x_R_L_list,rho):
         for l in range(L):
                 sum+= jaxnp.sum(jaxnp.square(jaxnp.maximum(0,-x_M_D_L_list[i][l]-1)+jaxnp.maximum(0,x_M_D_L_list[i][l]-1)))
     
-    return rho/2*sum
+    return gamma/2*sum
 
-def update_Lagrangian_coefficients(d,D,L,x_input,Lagrangian_coefficient,rho):
+def update_Lagrangian_coefficients(d,D,L,x_input,Lagrangian_coefficient,gamma):
     """
     D is the number of variables in polynomial
     L is the number of measures
     x_input is the flattend x
     Lagrangian_coefficient is Lagrangian coefficient
-    rho is the penalty term 
-
+    gamma is penalty parameter
     """
+    # TODO is Lagrangian coefficient the multipliers? Why isn't it a vector?
 
     #Before we start, we need to reshape the x input back to the original format
     x_M_D_L_list,x_R_L_list = restore_matrices(x_input, d , D, L)
@@ -211,15 +211,19 @@ def update_Lagrangian_coefficients(d,D,L,x_input,Lagrangian_coefficient,rho):
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
         for l in range(L):
+            # add up all differences between M_d and its factorization R @ R.T
+            # TODO do differences cancel out in this expression?
             sum += np.sum(x_M_D_L_list[i][l]-np.dot(x_R_L_list[i][l],x_R_L_list[i][l].T))
     
     # 5. mu_(1,0)^l>=0
     for l in range(L):
+        # if given mu_(1,0) is less than 0, add its absolute value to sum
         sum += max(-x_M_D_L_list[0][l][0,0],0)
     
     # 6. mu_(i,0)^l - 1 = 0
     for i in range(D-1):
         for l in range(L):
+            # TODO what would happen if this were less than 0? Cancel out?
             sum += x_M_D_L_list[i+1][l][0,0]-1
     
     # #7.B.2.2
@@ -232,17 +236,18 @@ def update_Lagrangian_coefficients(d,D,L,x_input,Lagrangian_coefficient,rho):
     #             sum+= max(0,-product-1)+max(0,product-1)
     
     #8 B.2.1.
+    # penalize any entries with absolute value exceeding 1
     for i in range(D):
         for l in range(L):
                 sum+= np.sum(np.maximum(0,-x_M_D_L_list[i][l]-1)+np.maximum(0,x_M_D_L_list[i][l]-1))
-    Lagrangian_coefficient += rho*sum
+    Lagrangian_coefficient += gamma*sum
     return Lagrangian_coefficient
 
-def auto_gradient(x,y,rho):
-    return rho/2*jaxnp.sum(jaxnp.square((x-jaxnp.dot(y,y.T))))
+def auto_gradient(x,y,gamma):
+    return gamma/2*jaxnp.sum(jaxnp.square((x-jaxnp.dot(y,y.T))))
 
 
-def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
+def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,gamma):
     """
     x is the flattend x
     D is the number of variables in polynomial
@@ -251,7 +256,7 @@ def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
     orders_list is the list of different terms(e.g. x1^2*x2^2) in polynomials
     coefficients_list is the list of coefficients of the above terms
     Lagrangian_coefficient is Lagrangian coefficient
-    rho is the penalty term 
+    gamma is penalty parameter
 
     """
     jacobian_matrix = []
@@ -268,10 +273,10 @@ def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
                         if i == 0 and j == 0 and k == 0:
                         #for 5
                             if x_M_D_L_list[k][l][i,j]<0:
-                                jacobian_matrix_sum += -Lagrangian_coefficient+rho*x_M_D_L_list[k][l][i,j]
+                                jacobian_matrix_sum += -Lagrangian_coefficient+gamma*x_M_D_L_list[k][l][i,j]
                         #for 6                           
                         elif i == 0 and j == 0 and k!=0:
-                            jacobian_matrix_sum += Lagrangian_coefficient+rho*(x_M_D_L_list[k][l][i,j]-1)
+                            jacobian_matrix_sum += Lagrangian_coefficient+gamma*(x_M_D_L_list[k][l][i,j]-1)
                         #for 1
                         if measure_moment_orders<=d:
                             for o in range(len(orders_list)):
@@ -292,15 +297,15 @@ def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
                     #         product_1*=x_M_D_L_list[s][l][i,j]
                     #         product_2*=x_M_D_L_list[s][l][i,j]
                     # if product_1<-1:
-                    #     jacobian_matrix_sum += -Lagrangian_coefficient*product_2+rho*product_2*(product_1+1)
+                    #     jacobian_matrix_sum += -Lagrangian_coefficient*product_2+gamma*product_2*(product_1+1)
                     # elif product_1>1:
-                    #     jacobian_matrix_sum += Lagrangian_coefficient*product_2+rho*product_2*(product_1-1)
+                    #     jacobian_matrix_sum += Lagrangian_coefficient*product_2+gamma*product_2*(product_1-1)
 
                         #for 8
                     if x_M_D_L_list[k][l][i,j]<-1:
-                        jacobian_matrix_sum += -Lagrangian_coefficient+rho*(x_M_D_L_list[k][l][i,j]+1)
+                        jacobian_matrix_sum += -Lagrangian_coefficient+gamma*(x_M_D_L_list[k][l][i,j]+1)
                     elif x_M_D_L_list[k][l][i,j]>1:
-                        jacobian_matrix_sum += Lagrangian_coefficient+rho*(x_M_D_L_list[k][l][i,j]-1)
+                        jacobian_matrix_sum += Lagrangian_coefficient+gamma*(x_M_D_L_list[k][l][i,j]-1)
 
                                 
                     jacobian_matrix_sum += Lagrangian_coefficient
@@ -328,8 +333,8 @@ def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
             R_L = x_R_L_list[k][l]
             grad_f_x = jaxgrad(auto_gradient, argnums=0)
             grad_f_y = jaxgrad(auto_gradient, argnums=1)
-            M_D_flatten = np.ravel(grad_f_x(M_D, R_L,rho)).tolist()
-            R_L_flatten = np.ravel(grad_f_y(M_D, R_L,rho)).tolist()
+            M_D_flatten = np.ravel(grad_f_x(M_D, R_L,gamma)).tolist()
+            R_L_flatten = np.ravel(grad_f_y(M_D, R_L,gamma)).tolist()
             penalty_x_M_D_L_list += M_D_flatten
             penalty_x_R_L_list += R_L_flatten
     
