@@ -69,6 +69,18 @@ def restore_matrices(s,d,D,L):
     
     return x_M_D_L_list,x_R_L_list
 
+def restore(s,d,D,L):
+    """
+    s is the flattened sequence of moment matrices and their factorizations R
+    d is the degree of the polynomial
+    D is the dimension of the hypercube
+    L is the number of measures
+
+    returns a reshaped numpy array, with 0th entry the moment matrices and
+    1st entry the corresponding Rs
+    """
+    return s.reshape((2, D, L, d+1, d+1))
+
 
 # Def the function of B.3
 def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
@@ -84,22 +96,26 @@ def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coeffi
     """
     #Before we start, we need to reshape the x input back to the original format, which is the matrix form
 
-    x_M_D_L_list,x_R_L_list = restore_matrices(s=x,d=d,D=D,L=L)
+    # extract moment matrices M_d^l and their respective factorizations R where
+    # M_d^l = R R^T
+    matrices = restore(x,d,D,L)
+    x_M_D_L_list = matrices[0]
+    x_R_L_list = matrices[1]
     
     sum_result = 0
 
     #First term
-    sum_result += term_1(D,L,x_M_D_L_list,orders_list,coefficients_list)
+    sum_result += objective(D,L,x_M_D_L_list,orders_list,coefficients_list)
 
     #Second term
-    sum_result += term_2(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient)
+    sum_result += multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient)
     
     #Third term
-    sum_result += term_3(D,L,d,x_M_D_L_list,x_R_L_list,rho)
+    sum_result += penalty(D,L,d,x_M_D_L_list,x_R_L_list,rho)
     return sum_result
 
 #This is the sum of the polynomials
-def term_1(D,L,x_M_D_L_list,orders_list,coefficients_list):
+def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
     sum = 0
     for i in range(len(orders_list)):
         moments_product_sum = 0
@@ -112,7 +128,7 @@ def term_1(D,L,x_M_D_L_list,orders_list,coefficients_list):
     return sum
 
 #Lagrangian term
-def term_2(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
+def multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
     
     sum = 0
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
@@ -146,7 +162,7 @@ def term_2(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
     return Lagrangian_coefficient*sum
 
 #Penanlty term
-def term_3(D,L,d,x_M_D_L_list,x_R_L_list,rho):
+def penalty(D,L,d,x_M_D_L_list,x_R_L_list,rho):
     sum = 0 
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
@@ -303,9 +319,9 @@ def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
             flattened_array *= -Lagrangian_coefficient
             jacobian_matrix = jacobian_matrix + list(flattened_array)
    
-    #接下来计算的是term_3的jacob，因为过于复杂，所以引入jax计算grad
-    term_3_x_M_D_L_list = []
-    term_3_x_R_L_list = []
+    #接下来计算的是penalty的jacob，因为过于复杂，所以引入jax计算grad
+    penalty_x_M_D_L_list = []
+    penalty_x_R_L_list = []
     for k in range(D):
         for l in range(L):
             M_D = x_M_D_L_list[k][l]
@@ -314,11 +330,11 @@ def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
             grad_f_y = jaxgrad(auto_gradient, argnums=1)
             M_D_flatten = np.ravel(grad_f_x(M_D, R_L,rho)).tolist()
             R_L_flatten = np.ravel(grad_f_y(M_D, R_L,rho)).tolist()
-            term_3_x_M_D_L_list += M_D_flatten
-            term_3_x_R_L_list += R_L_flatten
+            penalty_x_M_D_L_list += M_D_flatten
+            penalty_x_R_L_list += R_L_flatten
     
-    term_3_list = term_3_x_M_D_L_list + term_3_x_R_L_list
-    result = [a + b for a, b in zip(jacobian_matrix, term_3_list)]
+    penalty_list = penalty_x_M_D_L_list + penalty_x_R_L_list
+    result = [a + b for a, b in zip(jacobian_matrix, penalty_list)]
     return(result)
 
 
