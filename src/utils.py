@@ -114,8 +114,46 @@ def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coeffi
     sum_result += penalty(D,L,d,x_M_D_L_list,x_R_L_list,gamma)
     return sum_result
 
+def phi(n, M, D, L):
+    """
+    Calculates the sum of the product measures of a monomial given by n
+    This corresponds to phi in the paper
+
+    n is the tuple of exponents
+    M is the moment matrix
+    D is the dimension of the hypercube
+    L is the number of product measures
+    """
+
+    # Set up array for calculations
+    # Each row corresponds to a product measure
+    # The entries are the moments specified by n for each component measure
+    A = np.array([
+        [M[0,i,l,1,n_i] for (i, n_i) in zip(range(D), n)]
+        for l in range(L)])
+                            
+    # Multiply over the rows, then add up the resulting product measure values
+    return np.sum(np.prod(A, axis=1))
+
 #This is the sum of the polynomials
 def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
+    sum = 0
+    for i in range(len(orders_list)):
+        moments_product_sum = 0
+        for l in range(L):
+            moments_product = 1
+            for j in range(D):
+                moments_product *= x_M_D_L_list[j][l][0,orders_list[i][j]]
+            moments_product_sum += moments_product
+        sum +=coefficients_list[i]*moments_product_sum
+    return sum
+
+#This is the sum of the polynomials
+def objective(D,L,matrices,orders_list,coefficients_list):
+    """
+    Returns sum of p_n \phi_n
+    matrices is M_d and factorizations R
+    """
     sum = 0
     for i in range(len(orders_list)):
         moments_product_sum = 0
@@ -126,6 +164,7 @@ def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
             moments_product_sum += moments_prodect
         sum +=coefficients_list[i]*moments_product_sum
     return sum
+
 
 #Lagrangian term
 def multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
