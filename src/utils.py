@@ -164,23 +164,47 @@ def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
         sum +=coefficients_list[i]*moments_product_sum
     return sum
 
-#This is the sum of the polynomials
-def objective(D,L,matrices,orders_list,coefficients_list):
+def new_multipliers_term(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
     """
-    Returns sum of p_n \phi_n
-    matrices is M_d and factorizations R
+    Returns second term of Lagrangian: the dot product of lambda and the infeasabilities
+
+    arguments:
     """
     sum = 0
-    for i in range(len(orders_list)):
-        moments_product_sum = 0
+    # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
+    # R R^T approximation of M_d
+    # This is what we want, which we will try to translate to an einsum
+    RRt = np.empty((D, L, d+1, d+1))
+    for d in range(D):
         for l in range(L):
-            moments_prodect = 1
-            for j in range(D):
-                moments_prodect *= x_M_D_L_list[j][l][0,orders_list[i][j]]
-            moments_product_sum += moments_prodect
-        sum +=coefficients_list[i]*moments_product_sum
-    return sum
+            RRt[d, l] = M[1,d,l] @ M[1,d,l].T
 
+    RRt = np.einsum('abij,abjk->abij', M[1], M[1])
+    
+
+    # 5. mu_(1,0)^l>=0
+    for l in range(L):
+        sum += max(-x_M_D_L_list[0][l][0,0],0)
+    
+    # 6. mu_(i,0)^l - 1 = 0
+    for i in range(D-1):
+        for l in range(L):
+            sum += x_M_D_L_list[i+1][l][0,0]-1
+    # #7.B.2.2
+    # for l in range(L):
+    #     for i in range(d+1):
+    #         for j in range(d+1):
+    #             product = 1
+    #             for s in range(D):
+    #                 product *= x_M_D_L_list[s][l][i,j]
+    #             sum+= max(0,-product-1)+max(0,product-1)
+    
+    #8 B.2.1.
+    for i in range(D):
+        for l in range(L):
+            sum+= jaxnp.sum(jaxnp.maximum(0,-x_M_D_L_list[i][l]-1)+jaxnp.maximum(0,x_M_D_L_list[i][l]-1))
+    
+    return Lagrangian_coefficient*sum
 
 #Lagrangian term
 def multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
