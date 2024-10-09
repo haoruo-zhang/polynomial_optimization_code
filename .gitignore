@@ -1,0 +1,7 @@
+venv/
+**/__pycache__/
+.ipynb_checkpoints/
+*.txt
+**/Untitled*.ipynb
+test.py
+new_functions.py
