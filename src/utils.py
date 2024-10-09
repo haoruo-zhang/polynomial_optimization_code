@@ -3,6 +3,19 @@ import sympy as sp
 import torch
 import jax.numpy as jaxnp
 from jax import grad as jaxgrad
+from collections import namedtuple
+
+# define Lagrangian coefficients structure, shaped to match up with the
+# different matrices for which it is penalizing constraints.
+# See (B.1) and section B.2.1 of Letourneau et al. for details
+# factorization - elementwise equality constraints for M_d = R @ R.T
+# nonnegativity - mu_{1, 0} >= 0, and mu_{i,0} == 1 for all i \in [2,D]
+#                 and all product measures mu^l
+# relaxation    - |mu_{i,n_i}^l| <= 1 for all l, i <= D. See section B.2.1
+lagrangian_vector = namedtuple('lagrangian_vector',
+                               ('factorization',
+                                'nonnegativity',
+                                'relaxation'))
 
 #function generate polynomials
 def g_D_symbolic_coefficients_dict(D):
