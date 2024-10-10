@@ -5,7 +5,7 @@ import jax.numpy as jaxnp
 from jax import grad as jaxgrad
 from collections import namedtuple
 
-# define Lagrangian coefficients structure, shaped to match up with the
+# Define Lagrangian coefficients structure, shaped to match up with the
 # different matrices for which it is penalizing constraints.
 # See (B.1) and section B.2.1 of Letourneau et al. for details
 # factorization - elementwise equality constraints for M_d = R @ R.T
@@ -16,6 +16,21 @@ lagrangian_vector = namedtuple('lagrangian_vector',
                                ('factorization',
                                 'nonnegativity',
                                 'relaxation'))
+
+# Define data structure for the moment matrices M_d and their factorizations
+# R such that M_d = R @ R.T. This equality does not always hold during execution
+# of the algorithm, but differences will be penalized in the Lagrangian
+# M_d - a tensor containing the (d+1) x (d+1) moment matrix for each
+#       of the D component measures for each of the L product measures.
+#       So an L x D x (d+1) x (d+1) tensor
+# R   - tensor containing factors R such that M_d = R @ R.T for each of the
+#       component measures in M_d
+# RRt - tensor containing R @ R.T for each R. This is updated when we evaluate
+#       the Lagrangian after updating R
+moment_variables = namedtuple('moment_variables',
+                              ('M_d',
+                               'R',
+                               'RRt'))
 
 #function generate polynomials
 def g_D_symbolic_coefficients_dict(D):

@@ -4,5 +4,5 @@ venv/
 *.txt
 *.swp
 **/Untitled*.ipynb
-test.py
 new_functions.py
+!requirements.txt
