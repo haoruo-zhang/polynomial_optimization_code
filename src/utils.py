@@ -20,17 +20,24 @@ lagrangian_vector = namedtuple('lagrangian_vector',
 # Define data structure for the moment matrices M_d and their factorizations
 # R such that M_d = R @ R.T. This equality does not always hold during execution
 # of the algorithm, but differences will be penalized in the Lagrangian
-# M_d - a tensor containing the (d+1) x (d+1) moment matrix for each
-#       of the D component measures for each of the L product measures.
-#       So an L x D x (d+1) x (d+1) tensor
-# R   - tensor containing factors R such that M_d = R @ R.T for each of the
-#       component measures in M_d
-# RRt - tensor containing R @ R.T for each R. This is updated when we evaluate
-#       the Lagrangian after updating R
-moment_variables = namedtuple('moment_variables',
-                              ('M_d',
+# M_d   - a tensor containing the (d+1) x (d+1) moment matrix for each
+#         of the D component measures for each of the L product measures.
+#         So an L x D x (d+1) x (d+1) tensor
+# R     - tensor containing factors R such that M_d = R @ R.T for each of the
+#         component measures in M_d
+# RRt   - tensor containing R @ R.T for each R. This is updated when we evaluate
+#         the Lagrangian after updating R
+# prod_slack - slack variables to enforce product measure constraints:
+#              positivity constraints on mu_1,0^l and mu_i,0 = 1 constraints for i = 2, ...,
+#              D
+# abs_slack  - slack variable to enforce |mu_{i,n_i}^l| <= 1 from B.2.1
+free_variables = namedtuple('free_variables',
+                              ('mu',
+                               'M_d',
                                'R',
-                               'RRt'))
+                               'RRt',
+                               'pos_slack',
+                               'abs_slack'))
 
 #function generate polynomials
 def g_D_symbolic_coefficients_dict(D):
@@ -142,23 +149,24 @@ def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coeffi
     sum_result += penalty(D,L,d,x_M_D_L_list,x_R_L_list,gamma)
     return sum_result
 
-def phi(n, M, D, L):
+def phi(n, mu, D, L):
     """
     Calculates the sum of the product measures of a monomial given by n
     This corresponds to phi in the paper
 
     arguments:
-    n -- the tuple of exponents
-    M -- the moment matrix
-    D -- the dimension of the hypercube
-    L -- the number of product measures
+    n  -- the tuple of exponents
+    mu -- the moment vectors for D measures for each L product measures
+    D  -- the dimension of the hypercube
+    L  -- the number of product measures
     """
 
     # Set up array for calculations
     # Each row corresponds to a product measure
     # The entries are the moments specified by n for each component measure
     A = np.array([
-        [M[0,i,l,1,n_i] for (i, n_i) in zip(range(D), n)]
+        #[M[0,i,l,1,n_i] for (i, n_i) in zip(range(D), n)]
+        [mu[l,i,n_i] for (i, n_i) in zip(range(D), n)]
         for l in range(L)])
                             
     # Multiply over the rows, then add up the resulting product measure values
