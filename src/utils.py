@@ -5,6 +5,13 @@ import jax.numpy as jaxnp
 from jax import grad as jaxgrad
 from collections import namedtuple
 
+# The support of the polynomial objective function
+# coefficients - real-valued p_n for each monomial term
+# powers - sequences n of multi-indexes for each monomial x^n
+poly_support = namedtuple('poly_support',
+                               ('coefficients',
+                                'powers'))
+
 # Define Lagrangian coefficients structure, shaped to match up with the
 # different matrices for which it is penalizing constraints.
 # See (B.1) and section B.2.1 of Letourneau et al. for details
@@ -27,7 +34,7 @@ lagrangian_vector = namedtuple('lagrangian_vector',
 #         component measures in M_d
 # RRt   - tensor containing R @ R.T for each R. This is updated when we evaluate
 #         the Lagrangian after updating R
-# prod_slack - slack variables to enforce product measure constraints:
+# pos_slack - slack variables to enforce product measure constraints:
 #              positivity constraints on mu_1,0^l and mu_i,0 = 1 constraints for i = 2, ...,
 #              D
 # abs_slack  - slack variable to enforce |mu_{i,n_i}^l| <= 1 from B.2.1
@@ -40,35 +47,40 @@ free_variables = namedtuple('free_variables',
                                'abs_slack'))
 
 #function generate polynomials
-def g_D_symbolic_coefficients_dict(D):
+def polynomial_g(D):
     """
-    D is the number of variables in polynomial
+    Generates the polynomial $g_D(x)$ from example 3.2 in Letourneau paper, in
+    given dimension D
+
+    returns polynomial as a poly_support named tuple, of a sequence of leading
+    coefficients and a corresponding sequence of multi-index powers
     """
     # define variable x_1, x_2, ..., x_D
     x = sp.symbols(f'x1:{D+1}')
     
-    # Implement the polynomial
+    # Create the polynomial
     polynomial = (1 / D) * sum(8 * x_i**4 - 8 * x_i**2 + 1 for x_i in x)+(sum(x) / D) ** 3
   
     # Expand the result
     expanded_result = sp.expand(polynomial)
     
-    # initialize a dict to store coefficients
-    coefficients_dict = {}
-    
     # Get all terms in the expanded results
     terms = expanded_result.as_ordered_terms()
+
+    coefficients = []
+    powers = []
     
     for term in terms:
-        coeff = sp.expand(term)
-        for var in x:
-            coeff = coeff.coeff(var)
-        variables_powers = sp.Poly(term, x).as_dict()
-        
-        for vars_tuple, coeff in variables_powers.items():
-            coefficients_dict[vars_tuple] = coeff
-    
-    return expanded_result, coefficients_dict, polynomial, x
+        monomial = sp.Poly(term, x)
+
+        # translate coefficient to floating point from sympy format
+        coef = float(sp.polys.polytools.LC(monomial))
+        coefficients.append(coef)
+
+        n = sp.degree_list(monomial)
+        powers.append(n)
+
+    return poly_support(coefficients, powers)
 
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
@@ -165,7 +177,6 @@ def phi(n, mu, D, L):
     # Each row corresponds to a product measure
     # The entries are the moments specified by n for each component measure
     A = np.array([
-        #[M[0,i,l,1,n_i] for (i, n_i) in zip(range(D), n)]
         [mu[l,i,n_i] for (i, n_i) in zip(range(D), n)]
         for l in range(L)])
                             
@@ -180,12 +191,12 @@ def new_objective(coef, powers, M, D, L):
     arguments:
     coef -- a list of polynomial coefficients for each power tuple
     powers -- list of power tuples specifiying the monomial
-    M -- the moment matrix
+    mu -- the moment vectors for product measures
     D -- the dimension of the hypercube
     L -- the number of product measures
     """
     # would numpy be faster, or would array creation slow it down?
-    return sum([p_n * phi(n, M, D, L) for p_n, n in zip(coef, powers)])
+    return sum([p_n * phi(n, mu, D, L) for p_n, n in zip(coef, powers)])
 
 #This is the sum of the polynomials
 def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):

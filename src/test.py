@@ -56,16 +56,76 @@ class TestPhi(unittest.TestCase):
             truth = 2 / (i+1) if i % 2 == 0 else 0
             self.assertEqual(phi(n, mu, D, L), truth)
 
+class TestPolynomial(unittest.TestCase):
+    def test_0(self):
+        p = polynomial_g(2)
+        true_coefficients = [4.00000000000000,
+                             1/8,
+                             3/8,
+                             -4.00000000000000,
+                             3/8,
+                             4.00000000000000,
+                             1/8,
+                             -4,
+                             1.00000000000000]
+        true_powers = [(4, 0),
+                       (3, 0),
+                       (2, 1),
+                       (2, 0),
+                       (1, 2),
+                       (0, 4),
+                       (0, 3),
+                       (0, 2),
+                       (0, 0)]
+
+        self.assertEqual(p.coefficients, true_coefficients)
+        self.assertEqual(p.powers, true_powers)
+
+    def test_1(self):
+        p = polynomial_g(3)
+
+        true_coefficients = [8 / 3,
+                             1 / 27,
+                             1 / 9,
+                             1 / 9,
+                             -8 / 3,
+                             1 / 9,
+                             2 / 9,
+                             1 / 9,
+                             8 / 3,
+                             1 / 27,
+                             1 / 9,
+                             -8 / 3,
+                             1 / 9,
+                             8 / 3,
+                             1 / 27,
+                             -8 / 3,
+                             1.0]
+
+        true_powers = [(4, 0, 0),
+                       (3, 0, 0),
+                       (2, 1, 0),
+                       (2, 0, 1),
+                       (2, 0, 0),
+                       (1, 2, 0),
+                       (1, 1, 1),
+                       (1, 0, 2),
+                       (0, 4, 0),
+                       (0, 3, 0),
+                       (0, 2, 1),
+                       (0, 2, 0),
+                       (0, 1, 2),
+                       (0, 0, 4),
+                       (0, 0, 3),
+                       (0, 0, 2),
+                       (0, 0, 0)]
+
+        self.assertEqual(p.coefficients, true_coefficients)
+        self.assertEqual(p.powers, true_powers)
+
+
 if __name__ == '__main__':
     D = 1
     L = 2
     d = 6
-    #n = (3,)
-    #print(phi(n, test_values[0]['var'].mu, D, L))
-    #n = (2,)
-    #print(phi(n, test_values[0]['var'].mu, D, L))
-    #n = (6,)
-    #print(phi(n, test_values[0]['var'].mu, D, L))
-    #n = (5,)
-    #print(phi(n, test_values[0]['var'].mu, D, L))
     unittest.main(verbosity=2)
