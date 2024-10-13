@@ -57,8 +57,8 @@ class TestPhi(unittest.TestCase):
             self.assertEqual(phi(n, mu, D, L), truth)
 
 class TestPolynomial(unittest.TestCase):
-    def test_0(self):
-        p = polynomial_g(2)
+    def setUp(self):
+        self.ground_truth = []
         true_coefficients = [4.00000000000000,
                              1/8,
                              3/8,
@@ -77,12 +77,7 @@ class TestPolynomial(unittest.TestCase):
                        (0, 3),
                        (0, 2),
                        (0, 0)]
-
-        self.assertEqual(p.coefficients, true_coefficients)
-        self.assertEqual(p.powers, true_powers)
-
-    def test_1(self):
-        p = polynomial_g(3)
+        self.ground_truth.append(poly_support(true_coefficients, true_powers))
 
         true_coefficients = [8 / 3,
                              1 / 27,
@@ -120,8 +115,17 @@ class TestPolynomial(unittest.TestCase):
                        (0, 0, 2),
                        (0, 0, 0)]
 
-        self.assertEqual(p.coefficients, true_coefficients)
-        self.assertEqual(p.powers, true_powers)
+        self.ground_truth.append(poly_support(true_coefficients, true_powers))
+
+    def test_0(self):
+        p = polynomial_g(2)
+        self.assertEqual(p.coefficients, self.ground_truth[0].coefficients)
+        self.assertEqual(p.powers, self.ground_truth[0].powers)
+
+    def test_1(self):
+        p = polynomial_g(3)
+        self.assertEqual(p.coefficients, self.ground_truth[1].coefficients)
+        self.assertEqual(p.powers, self.ground_truth[1].powers)
 
 
 if __name__ == '__main__':

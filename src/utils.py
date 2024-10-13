@@ -211,22 +211,34 @@ def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
         sum +=coefficients_list[i]*moments_product_sum
     return sum
 
-def new_multipliers_term(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
+def evaluate_multipliers(D, L, d, free_vars, multipliers):
     """
-    Returns second term of Lagrangian: the dot product of lambda and the infeasabilities
+    Evaluates the second term of Lagrangian: the dot product of lambda and the infeasabilities
 
     arguments:
+    D - ambient space dimension and dimension of product measures
+    L - number of product measures
+    d - degree of objective polynomial
+    free_vars - free variables: moment vectors and matrices, and their
+                approximate factorizations and slack variables
+    multipliers - lagrangian_vector of multipliers
     """
     sum = 0
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
-    # R R^T approximation of M_d
-    # This is what we want, which we will try to translate to an einsum
-    RRt = np.empty((D, L, d+1, d+1))
-    for d in range(D):
-        for l in range(L):
-            RRt[d, l] = M[1,d,l] @ M[1,d,l].T
+    # Penalize inaccurate factorizations
+    # TODO update M_d as well?
+    # Re-evaluate RRt = R R^T
+    free_vars.RRt = np.einsum('abij,abjk->abij', free_vars.R, free_vars.R)
 
-    RRt = np.einsum('abij,abjk->abij', M[1], M[1])
+    sum += np.einsum('abij,abij->', free_vars.M_d - free_vars.RRt, multipliers.factorization)
+
+    # This is what we want, which we will try to translate to an einsum
+    #RRt = np.empty((D, L, d+1, d+1))
+    #for d in range(D):
+    #    for l in range(L):
+    #        RRt[d, l] = M[1,d,l] @ M[1,d,l].T
+
+    #RRt = np.einsum('abij,abjk->abij', M[1], M[1])
     
 
     # 5. mu_(1,0)^l>=0
