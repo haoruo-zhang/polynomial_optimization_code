@@ -93,6 +93,10 @@ class TestLagrangian(unittest.TestCase):
         D = 2
         d = 4
 
+        self.L = L
+        self.D = D
+        self.d = d
+
         # Construct moment vector and matrices for uniform distribution over [-1,1]
         mu_vector = [1 / (i+1) if i % 2 == 0 else 0 for i in range(2*d+1)]
         mu = np.array([[np.copy(mu_vector) for d in range(D)] for l in range(L)])
@@ -108,12 +112,55 @@ class TestLagrangian(unittest.TestCase):
         abs_slack = np.zeros((L, D, d+1))
 
         self.free_vars = FreeVariables(L, D, d, mu, R)
-        self.multipliers = LagrangeMultipliers(L, D, d)
+        # lambda
+        self.lm = LagrangeMultipliers(L, D, d)
 
 
-    def test_0(self):
-        self.free_vars.RRt[:] = np.einsum('abij,abjk->abij', self.free_vars.R, self.free_vars.R)
-        print(np.einsum('abij,abij->', self.free_vars.M_d - self.free_vars.RRt, self.multipliers.factorization))
+    def test_factorization_penalty(self):
+        # Test that the lm.multiply() function properly evaluates the
+        # lagrangian when multipliers are adjusted to align with various
+        # violations of constraints (R = 0 initially)
+        self.assertEqual(self.lm.multiply(self.free_vars), 0)
+
+        self.lm.factorization[0,0,3,1] = 1
+        self.assertEqual(self.lm.multiply(self.free_vars), 1/5)
+
+        # Should add nothing to product, no violation here
+        self.lm.factorization[0,0,2,1] = 1
+        self.assertEqual(self.lm.multiply(self.free_vars), 1/5)
+
+        self.lm.factorization[0,0,4,2] = -1
+        self.assertEqual(self.lm.multiply(self.free_vars), 1/5 - 1/7)
+
+        # Fix violation in M_d[0,0,3,1]
+        self.free_vars.R[0,0,3,0] = 1 / 5
+        self.free_vars.R[0,0,1,0] = 1
+        self.free_vars.update_RRt()
+        self.assertEqual(self.lm.multiply(self.free_vars), -1/7)
+
+
+    def test_nonnegativity_penalty(self):
+        self.lm.nonnegativity[1,0] = 3.7
+        self.free_vars.mu[1,0,0] = -1.9
+        self.assertEqual(self.lm.multiply(self.free_vars), -7.03)
+
+    def test_mu_equality_constraints(self):
+        self.lm.nonnegativity[1,1] = 5.8
+        self.free_vars.mu[1,1,0] = 8.03
+        self.assertAlmostEqual(self.lm.multiply(self.free_vars), 40.774)
+
+        # should not change value
+        self.lm.nonnegativity[0,1] = -1_000
+        self.assertAlmostEqual(self.lm.multiply(self.free_vars), 40.774)
+
+        self.free_vars.mu[0,1,0] = 0.5
+        self.assertAlmostEqual(self.lm.multiply(self.free_vars), 540.774)
+
+    def test_redundant_constraints(self):
+        """
+        Tests the B.2.2 redundant numerical stability constraint from
+        Letourneau et al. 2024
+        """
 
 
 if __name__ == '__main__':

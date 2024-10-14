@@ -62,8 +62,42 @@ class LagrangeMultipliers:
         self.d = d
 
         self.factorization = np.zeros((L, D, d+1, d+1))
-        self.nonnegativity = np.zeros((L, D)),
+        self.nonnegativity = np.zeros((L, D))
         self.relaxation = np.zeros((L, D, d+1))
+
+    def multiply(self, free_vars):
+        """
+        Evaluate Lagrange multipliers multiplied by the constraints, based on
+        the passed free variables
+        """
+        total = 0
+        # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
+        # Penalize inaccurate factorizations
+
+        free_vars.update_RRt()
+        # TODO update M_d as well?
+
+        # add up Lagrange multipliers times each componentwise difference
+        # between M_d and R @ R.T
+        total += np.einsum('abij,abij->', free_vars.M_d - free_vars.RRt, self.factorization)
+        
+        # 5. mu_(1,0)^l>=0, so anything positive is clipped
+        total += np.minimum(free_vars.mu[:,0,0], 0) @ self.nonnegativity[:,0]
+
+        # 6. mu_(i,0)^l - 1 = 0
+        total += np.einsum('ij,ij->',
+                      free_vars.mu[:,1:,0].reshape(self.L, self.D-1) -
+                      np.ones((self.L, self.D-1)),
+                      self.nonnegativity[:,1:])
+
+        # B.2.1. check that relevant moments have absolute value at most 1
+        A = np.maximum(np.abs(free_vars.mu[:,:,:self.d+1]) -
+                       np.ones((self.L, self.D, self.d+1)), 0)
+        total += np.einsum('ijk,ijk->', A, self.relaxation)
+
+        # TODO redundant B.2.2 numerical stability constraint
+
+        return total
 
 # Define data structure for the moment matrices M_d and their factorizations
 # R such that M_d = R @ R.T. This equality does not always hold during execution
@@ -83,25 +117,29 @@ class FreeVariables:
     def __init__(self, L, D, d, mu=None, R=None, seed=None):
         random = np.random.default_rng(seed) # None will yield OS-selected seed
 
-        self.mu = mu if mu is not None else random.random(size=(2 * d +1)) * 2 - np.ones(2*d+1)
+        self.mu = np.array(mu) if mu is not None else random.random(
+                size=(L, D, 2 * d +1)) * 2 - np.ones((L, D, 2*d+1))
         self.M_d = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
                  for m in range(d+1)]
                  for i in range(D)]
                  for l in range(L)])
 
         if R is not None:
-            self.R = R
+            self.R = np.array(R)
         else:
             random_R = random.random(size=(L, D, d+1, d+1)) * 2 - np.ones((L, D, d+1, d+1))
             self.R = random_R
 
         # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
-        self.RRt = np.einsum('abij,abjk->abij', self.R, self.R)
+        self.update_RRt()
 
         # TODO reevaluate and remove these?
         self.pos_slack = np.ones((L, D))
         self.abs_slack = np.zeros((L, D, d+1))
 
+    def update_RRt(self):
+        # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
+        self.RRt = np.einsum('abik,abjk->abij', self.R, self.R)
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
 def restore_matrices(s,d,D,L):
@@ -230,60 +268,6 @@ def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
             moments_product_sum += moments_product
         sum +=coefficients_list[i]*moments_product_sum
     return sum
-
-def evaluate_multipliers(D, L, d, free_vars, multipliers):
-    """
-    Evaluates the second term of Lagrangian: the dot product of lambda and the infeasabilities
-
-    arguments:
-    D - ambient space dimension and dimension of product measures
-    L - number of product measures
-    d - degree of objective polynomial
-    free_vars - free variables: moment vectors and matrices, and their
-                approximate factorizations and slack variables
-    multipliers - LagrangeMultipliers
-    """
-    sum = 0
-    # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
-    # Penalize inaccurate factorizations
-    # TODO update M_d as well?
-    # Re-evaluate RRt = R R^T
-    free_vars.RRt = np.einsum('abij,abjk->abij', free_vars.R, free_vars.R)
-
-    sum += np.einsum('abij,abij->', free_vars.M_d - free_vars.RRt, multipliers.factorization)
-
-    # This is what we want, which we will try to translate to an einsum
-    #RRt = np.empty((D, L, d+1, d+1))
-    #for d in range(D):
-    #    for l in range(L):
-    #        RRt[d, l] = M[1,d,l] @ M[1,d,l].T
-
-    #RRt = np.einsum('abij,abjk->abij', M[1], M[1])
-    
-
-    # 5. mu_(1,0)^l>=0
-    for l in range(L):
-        sum += max(-x_M_D_L_list[0][l][0,0],0)
-    
-    # 6. mu_(i,0)^l - 1 = 0
-    for i in range(D-1):
-        for l in range(L):
-            sum += x_M_D_L_list[i+1][l][0,0]-1
-    # #7.B.2.2
-    # for l in range(L):
-    #     for i in range(d+1):
-    #         for j in range(d+1):
-    #             product = 1
-    #             for s in range(D):
-    #                 product *= x_M_D_L_list[s][l][i,j]
-    #             sum+= max(0,-product-1)+max(0,product-1)
-    
-    #8 B.2.1.
-    for i in range(D):
-        for l in range(L):
-            sum+= jaxnp.sum(jaxnp.maximum(0,-x_M_D_L_list[i][l]-1)+jaxnp.maximum(0,x_M_D_L_list[i][l]-1))
-    
-    return Lagrangian_coefficient*sum
 
 #Lagrangian term
 def multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
