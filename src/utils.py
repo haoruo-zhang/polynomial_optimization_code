@@ -9,21 +9,61 @@ from collections import namedtuple
 # coefficients - real-valued p_n for each monomial term
 # powers - sequences n of multi-indexes for each monomial x^n
 class PolySupport:
-    def __init__(coefficients, powers):
+    def __init__(self, coefficients, powers):
         self.coefficients = coefficients
         self.powers = powers
 
-# Define Lagrangian coefficients structure, shaped to match up with the
+# Polynomial support of the polynomial in example 3.2 of Letourneau et al. 2024
+class ExampleG(PolySupport):
+    """
+    Generates the polynomial $g_D(x)$ from example 3.2 in Letourneau paper, in
+    given dimension D
+    """
+    def __init__(self, D):
+        # define variable x_1, x_2, ..., x_D
+        x = sp.symbols(f'x1:{D+1}')
+        
+        # Create the polynomial
+        polynomial = (1 / D) * sum(8 * x_i**4 - 8 * x_i**2 + 1 for x_i in x)+(sum(x) / D) ** 3
+      
+        # Expand the result
+        expanded_result = sp.expand(polynomial)
+        
+        # Get all terms in the expanded results
+        terms = expanded_result.as_ordered_terms()
+
+        coefficients = []
+        powers = []
+        
+        for term in terms:
+            monomial = sp.Poly(term, x)
+
+            # translate coefficient to floating point from sympy format
+            coef = float(sp.polys.polytools.LC(monomial))
+            coefficients.append(coef)
+
+            n = sp.degree_list(monomial)
+            powers.append(n)
+
+        super().__init__(coefficients, powers)
+
+
+# Define Lagrange multipliers structure, shaped to match up with the
 # different matrices for which it is penalizing constraints.
 # See (B.1) and section B.2.1 of Letourneau et al. for details
 # factorization - elementwise equality constraints for M_d = R @ R.T
 # nonnegativity - mu_{1, 0} >= 0, and mu_{i,0} == 1 for all i \in [2,D]
 #                 and all product measures mu^l
 # relaxation    - |mu_{i,n_i}^l| <= 1 for all l, i <= D. See section B.2.1
-lagrangian_vector = namedtuple('lagrangian_vector',
-                               ('factorization',
-                                'nonnegativity',
-                                'relaxation'))
+class LagrangeMultipliers:
+    def __init__(self, L, D, d):
+        self.L = L
+        self.D = D
+        self.d = d
+
+        self.factorization = np.zeros((L, D, d+1, d+1))
+        self.nonnegativity = np.zeros((L, D)),
+        self.relaxation = np.zeros((L, D, d+1))
 
 # Define data structure for the moment matrices M_d and their factorizations
 # R such that M_d = R @ R.T. This equality does not always hold during execution
@@ -39,49 +79,28 @@ lagrangian_vector = namedtuple('lagrangian_vector',
 #              positivity constraints on mu_1,0^l and mu_i,0 = 1 constraints for i = 2, ...,
 #              D
 # abs_slack  - slack variable to enforce |mu_{i,n_i}^l| <= 1 from B.2.1
-free_variables = namedtuple('free_variables',
-                              ('mu',
-                               'M_d',
-                               'R',
-                               'RRt',
-                               'pos_slack',
-                               'abs_slack'))
+class FreeVariables:
+    def __init__(self, L, D, d, mu=None, R=None, seed=None):
+        random = np.random.default_rng(seed) # None will yield OS-selected seed
 
-#function generate polynomials
-def polynomial_g(D):
-    """
-    Generates the polynomial $g_D(x)$ from example 3.2 in Letourneau paper, in
-    given dimension D
+        self.mu = mu if mu is not None else random.random(size=(2 * d +1)) * 2 - np.ones(2*d+1)
+        self.M_d = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
+                 for m in range(d+1)]
+                 for i in range(D)]
+                 for l in range(L)])
 
-    returns polynomial as a PolySupport named tuple, of a sequence of leading
-    coefficients and a corresponding sequence of multi-index powers
-    """
-    # define variable x_1, x_2, ..., x_D
-    x = sp.symbols(f'x1:{D+1}')
-    
-    # Create the polynomial
-    polynomial = (1 / D) * sum(8 * x_i**4 - 8 * x_i**2 + 1 for x_i in x)+(sum(x) / D) ** 3
-  
-    # Expand the result
-    expanded_result = sp.expand(polynomial)
-    
-    # Get all terms in the expanded results
-    terms = expanded_result.as_ordered_terms()
+        if R is not None:
+            self.R = R
+        else:
+            random_R = random.random(size=(L, D, d+1, d+1)) * 2 - np.ones((L, D, d+1, d+1))
+            self.R = random_R
 
-    coefficients = []
-    powers = []
-    
-    for term in terms:
-        monomial = sp.Poly(term, x)
+        # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
+        self.RRt = np.einsum('abij,abjk->abij', self.R, self.R)
 
-        # translate coefficient to floating point from sympy format
-        coef = float(sp.polys.polytools.LC(monomial))
-        coefficients.append(coef)
-
-        n = sp.degree_list(monomial)
-        powers.append(n)
-
-    return PolySupport(coefficients, powers)
+        # TODO reevaluate and remove these?
+        self.pos_slack = np.ones((L, D))
+        self.abs_slack = np.zeros((L, D, d+1))
 
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
@@ -222,7 +241,7 @@ def evaluate_multipliers(D, L, d, free_vars, multipliers):
     d - degree of objective polynomial
     free_vars - free variables: moment vectors and matrices, and their
                 approximate factorizations and slack variables
-    multipliers - lagrangian_vector of multipliers
+    multipliers - LagrangeMultipliers
     """
     sum = 0
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0

@@ -2,54 +2,14 @@ import numpy as np
 import unittest
 from utils import *
 
-# Define values used for testing 
-test_values = []
-
-# First test values
-D = 1
-L = 2
-d = 6
-
-# Construct moment vector and matrices for uniform distribution over [-1,1]
-mu_vector = [1 / (i+1) if i % 2 == 0 else 0 for i in range(2*d+1)]
-mu = np.array([[np.copy(mu_vector) for d in range(D)] for l in range(L)])
-M = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
-                for m in range(d+1)]
-                for i in range(D)]
-                for l in range(L)])
-
-# Construct R for factorization M_d = R @ R.T
-U, Sigma, Vh = np.linalg.svd(M[0,0])
-eigenval, eigenvec = np.linalg.eigh(M[0,0])
-R = U @ np.diag(np.sqrt(Sigma)) @ U.T
-RRt = R @ R.T
-
-pos_slack = np.ones((L, D))
-abs_slack = np.zeros((L, D, d+1))
-
-var = free_variables(mu, M, R, RRt, pos_slack, abs_slack)
-lm = lagrangian_vector(np.zeros((L, D, d+1, d+1)),
-                       np.zeros((L, D)),
-                       np.zeros((L, D, d+1)))
-
-#polynomial = g_D_symbolic_coefficients_dict(D)
-
-test_values.append({
-    'd' : 6,
-    'D' : 1,
-    'L' : 2,
-    'var' : var,
-    'lambda'  : lm})
-    #'lambda'  : lm,
-    #'p' : polynomial
-    #})
-
 class TestPhi(unittest.TestCase):
     def test_0(self):
-        mu = test_values[0]['var'].mu
-        d = test_values[0]['d']
-        D = test_values[0]['D']
-        L = test_values[0]['L']
+        L = 2
+        D = 1
+        d = 6
+
+        mu_vector = [1 / (i+1) if i % 2 == 0 else 0 for i in range(2*d+1)]
+        mu = np.array([[np.copy(mu_vector) for d in range(D)] for l in range(L)])
 
         for i in range(d+1):
             n = (i,)
@@ -118,12 +78,12 @@ class TestPolynomial(unittest.TestCase):
         self.ground_truth.append(PolySupport(true_coefficients, true_powers))
 
     def test_0(self):
-        p = polynomial_g(2)
+        p = ExampleG(2)
         self.assertEqual(p.coefficients, self.ground_truth[0].coefficients)
         self.assertEqual(p.powers, self.ground_truth[0].powers)
 
     def test_1(self):
-        p = polynomial_g(3)
+        p = ExampleG(3)
         self.assertEqual(p.coefficients, self.ground_truth[1].coefficients)
         self.assertEqual(p.powers, self.ground_truth[1].powers)
 
@@ -147,10 +107,8 @@ class TestLagrangian(unittest.TestCase):
         pos_slack = np.ones((L, D))
         abs_slack = np.zeros((L, D, d+1))
 
-        self.free_vars = free_variables(mu, M, R, RRt, pos_slack, abs_slack)
-        self.multipliers = lagrangian_vector(np.zeros((L, D, d+1, d+1)),
-                               np.zeros((L, D)),
-                               np.zeros((L, D, d+1)))
+        self.free_vars = FreeVariables(L, D, d, mu, R)
+        self.multipliers = LagrangeMultipliers(L, D, d)
 
 
     def test_0(self):
