@@ -77,7 +77,7 @@ class TestPolynomial(unittest.TestCase):
                        (0, 3),
                        (0, 2),
                        (0, 0)]
-        self.ground_truth.append(poly_support(true_coefficients, true_powers))
+        self.ground_truth.append(PolySupport(true_coefficients, true_powers))
 
         true_coefficients = [8 / 3,
                              1 / 27,
@@ -115,7 +115,7 @@ class TestPolynomial(unittest.TestCase):
                        (0, 0, 2),
                        (0, 0, 0)]
 
-        self.ground_truth.append(poly_support(true_coefficients, true_powers))
+        self.ground_truth.append(PolySupport(true_coefficients, true_powers))
 
     def test_0(self):
         p = polynomial_g(2)
@@ -126,6 +126,36 @@ class TestPolynomial(unittest.TestCase):
         p = polynomial_g(3)
         self.assertEqual(p.coefficients, self.ground_truth[1].coefficients)
         self.assertEqual(p.powers, self.ground_truth[1].powers)
+
+class TestLagrangian(unittest.TestCase):
+    def setUp(self):
+        L = 2
+        D = 2
+        d = 4
+
+        # Construct moment vector and matrices for uniform distribution over [-1,1]
+        mu_vector = [1 / (i+1) if i % 2 == 0 else 0 for i in range(2*d+1)]
+        mu = np.array([[np.copy(mu_vector) for d in range(D)] for l in range(L)])
+        M = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
+                        for m in range(d+1)]
+                        for i in range(D)]
+                        for l in range(L)])
+
+        R = np.zeros(M.shape)
+        RRt = np.zeros(M.shape)
+
+        pos_slack = np.ones((L, D))
+        abs_slack = np.zeros((L, D, d+1))
+
+        self.free_vars = free_variables(mu, M, R, RRt, pos_slack, abs_slack)
+        self.multipliers = lagrangian_vector(np.zeros((L, D, d+1, d+1)),
+                               np.zeros((L, D)),
+                               np.zeros((L, D, d+1)))
+
+
+    def test_0(self):
+        self.free_vars.RRt[:] = np.einsum('abij,abjk->abij', self.free_vars.R, self.free_vars.R)
+        print(np.einsum('abij,abij->', self.free_vars.M_d - self.free_vars.RRt, self.multipliers.factorization))
 
 
 if __name__ == '__main__':

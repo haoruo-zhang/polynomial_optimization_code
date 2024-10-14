@@ -8,9 +8,10 @@ from collections import namedtuple
 # The support of the polynomial objective function
 # coefficients - real-valued p_n for each monomial term
 # powers - sequences n of multi-indexes for each monomial x^n
-poly_support = namedtuple('poly_support',
-                               ('coefficients',
-                                'powers'))
+class PolySupport:
+    def __init__(coefficients, powers):
+        self.coefficients = coefficients
+        self.powers = powers
 
 # Define Lagrangian coefficients structure, shaped to match up with the
 # different matrices for which it is penalizing constraints.
@@ -52,7 +53,7 @@ def polynomial_g(D):
     Generates the polynomial $g_D(x)$ from example 3.2 in Letourneau paper, in
     given dimension D
 
-    returns polynomial as a poly_support named tuple, of a sequence of leading
+    returns polynomial as a PolySupport named tuple, of a sequence of leading
     coefficients and a corresponding sequence of multi-index powers
     """
     # define variable x_1, x_2, ..., x_D
@@ -80,7 +81,7 @@ def polynomial_g(D):
         n = sp.degree_list(monomial)
         powers.append(n)
 
-    return poly_support(coefficients, powers)
+    return PolySupport(coefficients, powers)
 
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
