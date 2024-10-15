@@ -156,11 +156,8 @@ class TestLagrangian(unittest.TestCase):
         self.free_vars.mu[0,1,0] = 0.5
         self.assertAlmostEqual(self.lm.multiply(self.free_vars), 540.774)
 
-    def test_redundant_constraints(self):
-        """
-        Tests the B.2.2 redundant numerical stability constraint from
-        Letourneau et al. 2024
-        """
+    # TODO test moments absolute value <= 1 constraints
+    # TODO redundant B.2.2 numerical stability constraint
 
 
 if __name__ == '__main__':
