@@ -1,7 +1,7 @@
 import numpy as np
 import sympy as sp
 import torch
-import jax.numpy as jaxnp
+import jax.numpy as jnp
 from jax import grad as jaxgrad
 from collections import namedtuple
 
@@ -61,9 +61,9 @@ class LagrangeMultipliers:
         self.D = D
         self.d = d
 
-        self.factorization = np.zeros((L, D, d+1, d+1))
-        self.nonnegativity = np.zeros((L, D))
-        self.relaxation = np.zeros((L, D, d+1))
+        self.factorization = jnp.zeros((L, D, d+1, d+1))
+        self.nonnegativity = jnp.zeros((L, D))
+        self.relaxation = jnp.zeros((L, D, d+1))
 
     def multiply(self, free_vars):
         """
@@ -79,24 +79,23 @@ class LagrangeMultipliers:
 
         # add up Lagrange multipliers times each componentwise difference
         # between M_d and R @ R.T
-        total += np.einsum('abij,abij->', free_vars.M_d - free_vars.RRt, self.factorization)
+        total += jnp.einsum('abij,abij->', free_vars.M_d - free_vars.RRt, self.factorization)
         
         # 5. mu_(1,0)^l>=0, so anything positive is clipped
-        total += np.minimum(free_vars.mu[:,0,0], 0) @ self.nonnegativity[:,0]
+        total += jnp.minimum(free_vars.mu[:,0,0], 0) @ self.nonnegativity[:,0]
 
         # 6. mu_(i,0)^l - 1 = 0
-        total += np.einsum('ij,ij->',
+        total += jnp.einsum('ij,ij->',
                       free_vars.mu[:,1:,0].reshape(self.L, self.D-1) -
-                      np.ones((self.L, self.D-1)),
+                      jnp.ones((self.L, self.D-1)),
                       self.nonnegativity[:,1:])
 
         # B.2.1. check that relevant moments have absolute value at most 1
-        A = np.maximum(np.abs(free_vars.mu[:,:,:self.d+1]) -
-                       np.ones((self.L, self.D, self.d+1)), 0)
-        total += np.einsum('ijk,ijk->', A, self.relaxation)
+        A = jnp.maximum(jnp.abs(free_vars.mu[:,:,:self.d+1]) -
+                       jnp.ones((self.L, self.D, self.d+1)), 0)
+        total += jnp.einsum('ijk,ijk->', A, self.relaxation)
 
         # TODO redundant B.2.2 numerical stability constraint
-
         return total
 
 # Define data structure for the moment matrices M_d and their factorizations
@@ -117,29 +116,29 @@ class FreeVariables:
     def __init__(self, L, D, d, mu=None, R=None, seed=None):
         random = np.random.default_rng(seed) # None will yield OS-selected seed
 
-        self.mu = np.array(mu) if mu is not None else random.random(
-                size=(L, D, 2 * d +1)) * 2 - np.ones((L, D, 2*d+1))
-        self.M_d = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
+        self.mu = jnp.array(mu) if mu is not None else random.random(
+                size=(L, D, 2 * d +1)) * 2 - jnp.ones((L, D, 2*d+1))
+        self.M_d = jnp.array([[[[mu[l,i,n+m] for n in range(d+1)]
                  for m in range(d+1)]
                  for i in range(D)]
                  for l in range(L)])
 
         if R is not None:
-            self.R = np.array(R)
+            self.R = jnp.array(R)
         else:
-            random_R = random.random(size=(L, D, d+1, d+1)) * 2 - np.ones((L, D, d+1, d+1))
+            random_R = random.random(size=(L, D, d+1, d+1)) * 2 - jnp.ones((L, D, d+1, d+1))
             self.R = random_R
 
         # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
         self.update_RRt()
 
         # TODO reevaluate and remove these?
-        self.pos_slack = np.ones((L, D))
-        self.abs_slack = np.zeros((L, D, d+1))
+        self.pos_slack = jnp.ones((L, D))
+        self.abs_slack = jnp.zeros((L, D, d+1))
 
     def update_RRt(self):
         # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
-        self.RRt = np.einsum('abik,abjk->abij', self.R, self.R)
+        self.RRt = jnp.einsum('abik,abjk->abij', self.R, self.R)
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
 def restore_matrices(s,d,D,L):
@@ -234,12 +233,12 @@ def phi(n, mu, D, L):
     # Set up array for calculations
     # Each row corresponds to a product measure
     # The entries are the moments specified by n for each component measure
-    A = np.array([
+    A = jnp.array([
         [mu[l,i,n_i] for (i, n_i) in zip(range(D), n)]
         for l in range(L)])
                             
     # Multiply over the rows, then add up the resulting product measure values
-    return np.sum(np.prod(A, axis=1))
+    return jnp.sum(jnp.prod(A, axis=1))
 
 def new_objective(coef, powers, M, D, L):
     """
