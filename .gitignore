@@ -5,4 +5,5 @@ venv/
 *.swp
 **/Untitled*.ipynb
 new_functions.py
+exp.py
 !requirements.txt

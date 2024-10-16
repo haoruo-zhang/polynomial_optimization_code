@@ -1,9 +1,10 @@
+from collections import namedtuple
+from functools import partial
+import jax.numpy as jnp
+from jax import grad as jaxgrad
 import numpy as np
 import sympy as sp
 import torch
-import jax.numpy as jnp
-from jax import grad as jaxgrad
-from collections import namedtuple
 
 # The support of the polynomial objective function
 # coefficients - real-valued p_n for each monomial term
@@ -139,6 +140,93 @@ class FreeVariables:
     def update_RRt(self):
         # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
         self.RRt = jnp.einsum('abik,abjk->abij', self.R, self.R)
+
+    def update_M_d(self):
+        self.M_d = jnp.array([[[[self.mu[l,i,n+m] for n in range(d+1)]
+                 for m in range(d+1)]
+                 for i in range(D)]
+                 for l in range(L)])
+
+def multiply_lagrangian(l_factorization, l_nonnegativity, l_relaxation,
+                        mu, M_d, R, L, D, d):
+    """
+    Method to multiply lagrange multiplier vector by the infeasabilities.
+    Separated out from the LagrangeMultipliers class for use by jax autogradient
+    """
+    # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
+    RRt = jnp.einsum('abik,abjk->abij', R, R)
+    #RRt = jnp.inner(R, R) # = R @ R.T
+    total = 0
+
+    # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
+    # Penalize inaccurate factorizations
+    # add up Lagrange multipliers times each componentwise difference
+    # between M_d and R @ R.T
+    total += jnp.einsum('abij,abij->', M_d - RRt, l_factorization)
+    
+    # 5. mu_(1,0)^l>=0, so anything positive is clipped
+    total += jnp.minimum(mu[:,0,0], 0) @ l_nonnegativity[:,0]
+
+    # 6. mu_(i,0)^l - 1 = 0
+    total += jnp.einsum('ij,ij->',
+                  mu[:,1:,0].reshape(L, D-1) -
+                  jnp.ones((L, D-1)),
+                  l_nonnegativity[:,1:])
+
+    # B.2.1. check that relevant moments have absolute value at most 1
+    A = jnp.maximum(jnp.abs(mu[:,:,:d+1]) -
+                   jnp.ones((L, D, d+1)), 0)
+    total += jnp.einsum('ijk,ijk->', A, l_relaxation)
+
+    # TODO redundant B.2.2 numerical stability constraint
+    return total
+
+def grad_factorization(l_factorization, l_nonnegativity, l_relaxation,
+                        mu, M_d, R, L, D, d):
+    """
+    Returns gradients of the Lagrange multipliers term of the Lagrangian, with
+    respect to the factorization matrix R
+    """
+    result = np.zeros(R.shape)
+    for l in range(L):
+        for i in range(D):
+            for n in range(d+1):
+                for m in range(d+1):
+                    # add up effects from ith row of R @ R.T
+                    result[l,i,n,m] = -1 * np.inner(l_factorization[l,i,n,:],
+                                                    R[l,i,:,m])
+                    # add up effects from ith column of R @ R.T
+                    result[l,i,n,m] += -1 * np.inner(l_factorization[l,i,:,n],
+                                                    R[l,i,:,m])
+                    # this will "double-count" the (i,j)th entry of R @ R.T,
+                    # but this is equal to the derivative of this term anyway
+                    # r_ij^2 -> 2r_ij
+
+    return result
+    total = 0
+
+    # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
+    # Penalize inaccurate factorizations
+    # add up Lagrange multipliers times each componentwise difference
+    # between M_d and R @ R.T
+    total += jnp.einsum('abij,abij->', M_d - RRt, l_factorization)
+    
+    # 5. mu_(1,0)^l>=0, so anything positive is clipped
+    total += jnp.minimum(mu[:,0,0], 0) @ l_nonnegativity[:,0]
+
+    # 6. mu_(i,0)^l - 1 = 0
+    total += jnp.einsum('ij,ij->',
+                  mu[:,1:,0].reshape(L, D-1) -
+                  jnp.ones((L, D-1)),
+                  l_nonnegativity[:,1:])
+
+    # B.2.1. check that relevant moments have absolute value at most 1
+    A = jnp.maximum(jnp.abs(mu[:,:,:d+1]) -
+                   jnp.ones((L, D, d+1)), 0)
+    total += jnp.einsum('ijk,ijk->', A, l_relaxation)
+
+    # TODO redundant B.2.2 numerical stability constraint
+    return total
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
 def restore_matrices(s,d,D,L):

@@ -87,7 +87,7 @@ class TestPolynomial(unittest.TestCase):
         self.assertEqual(p.coefficients, self.ground_truth[1].coefficients)
         self.assertEqual(p.powers, self.ground_truth[1].powers)
 
-class TestLagrangian(unittest.TestCase):
+class TestLagrangeMultipliers(unittest.TestCase):
     def setUp(self):
         L = 2
         D = 2
@@ -159,9 +159,104 @@ class TestLagrangian(unittest.TestCase):
     # TODO test moments absolute value <= 1 constraints
     # TODO redundant B.2.2 numerical stability constraint
 
+class TestMultiplierGradient(unittest.TestCase):
+    def setUp(self):
+        L = 2
+        D = 2
+        d = 4
+
+        self.L = L
+        self.D = D
+        self.d = d
+
+        # Set reproducible pool of randomness
+        self.rand = np.random.RandomState(109332085)
+
+        # Construct moment vector and matrices for uniform distribution over [-1,1]
+        mu_vector = np.array([1 / (i+1) if i % 2 == 0 else 0 for i in range(2*d+1)])
+        mu = np.array([[np.copy(mu_vector) for d in range(D)] for l in range(L)])
+        M = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
+                        for m in range(d+1)]
+                        for i in range(D)]
+                        for l in range(L)])
+
+        R = np.zeros(M.shape)
+        RRt = np.zeros(M.shape)
+
+        pos_slack = np.ones((L, D))
+        abs_slack = np.zeros((L, D, d+1))
+
+        self.free_vars = FreeVariables(L, D, d, mu, R)
+
+        # lambda
+        self.lm = LagrangeMultipliers(L, D, d)
+
+        # gradient with respect to Lagrange multipliers
+        self.grad_lm = jaxgrad(partial(multiply_lagrangian), argnums=(0, 1, 2))
+
+        # gradient with respect to moments and moment matrices
+        self.grad_mu = jaxgrad(partial(multiply_lagrangian, L=L, D=D, d=d), argnums=(3, 4))
+
+        # gradient with respect to R
+        self.grad_R = jaxgrad(partial(multiply_lagrangian, L=L, D=D, d=d), argnums=(5,))
+
+    def test_factorization(self):
+        # OLD printing code
+        #print('\nM_d')
+        #print(self.free_vars.M_d)
+        #print('\nR')
+        #print(self.free_vars.R)
+        #print('\nl_factorization')
+        #print(self.lm.factorization)
+        #print('\nJax gradient w/r/t R')
+        #print(self.grad_R(self.lm.factorization, self.lm.nonnegativity,
+        #                  self.lm.relaxation, self.free_vars.mu,
+        #                  self.free_vars.M_d, self.free_vars.R))
+        #print('\nKyle\'s hard-coded gradient w/r/t R')
+        #print(grad_factorization(self.lm.factorization, self.lm.nonnegativity,
+        #                         self.lm.relaxation, self.free_vars.mu,
+        #                         self.free_vars.M_d, self.free_vars.R, L, D,
+        #                         d))
+        L = self.L
+        D = self.D
+        d = self.d
+
+        # Test if one lagrange multiplier factor and one R element change works
+        self.lm.factorization = self.lm.factorization.at[0,1,1,3].set(0.5)
+        self.free_vars.R = self.free_vars.R.at[0,1,1,1].set(1)
+        jax_result = self.grad_R(self.lm.factorization, self.lm.nonnegativity,
+                          self.lm.relaxation, self.free_vars.mu,
+                          self.free_vars.M_d, self.free_vars.R)
+        hardcoded_result = grad_factorization(self.lm.factorization, self.lm.nonnegativity,
+                                 self.lm.relaxation, self.free_vars.mu,
+                                 self.free_vars.M_d, self.free_vars.R, L, D,
+                                 d)
+        self.assertTrue(np.equal(jax_result, hardcoded_result).all())
+
+        # Test if "random" (but fixed) factorization and lagrange multipliers
+        # yield the same answer
+        self.lm.factorization = self.rand.random_sample((L, D, d+1, d+1))
+        self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
+        jax_result = self.grad_R(self.lm.factorization, self.lm.nonnegativity,
+                          self.lm.relaxation, self.free_vars.mu,
+                          self.free_vars.M_d, self.free_vars.R)
+        hardcoded_result = grad_factorization(self.lm.factorization, self.lm.nonnegativity,
+                                 self.lm.relaxation, self.free_vars.mu,
+                                 self.free_vars.M_d, self.free_vars.R, L, D,
+                                 d)
+        print('\nJax gradient w/r/t R')
+        print(self.grad_R(self.lm.factorization, self.lm.nonnegativity,
+                          self.lm.relaxation, self.free_vars.mu,
+                          self.free_vars.M_d, self.free_vars.R))
+        print('\nKyle\'s hard-coded gradient w/r/t R')
+        print(grad_factorization(self.lm.factorization, self.lm.nonnegativity,
+                                 self.lm.relaxation, self.free_vars.mu,
+                                 self.free_vars.M_d, self.free_vars.R, L, D,
+                                 d))
+        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        
+
+
 
 if __name__ == '__main__':
-    D = 1
-    L = 2
-    d = 6
     unittest.main(verbosity=2)
