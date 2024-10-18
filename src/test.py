@@ -344,7 +344,7 @@ class TestMultiplierGradient(unittest.TestCase):
         D = self.D
         d = self.d
 
-        # Test if mu just outside feasable region and random lm works
+        # Test if mu just outside feasible region and random lm works
         # NOTE because | mu - 1| is non-differentiable at mu = 1, we would
         # get discrepancies there because jax just takes the average of the
         # "derivative" in each direction, positive and negative, while the

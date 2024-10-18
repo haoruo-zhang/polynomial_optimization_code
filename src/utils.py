@@ -150,7 +150,7 @@ class FreeVariables:
 def multiply_lagrangian(l_factorization, l_nonnegativity, l_relaxation,
                         mu, M_d, R, L, D, d):
     """
-    Method to multiply lagrange multiplier vector by the infeasabilities.
+    Method to multiply lagrange multiplier vector by the infeasibilities.
     Separated out from the LagrangeMultipliers class for use by jax autogradient
     """
     ## TODO change from jax to numpy? Get rid of this hacky update
