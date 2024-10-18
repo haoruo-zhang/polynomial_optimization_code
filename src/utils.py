@@ -234,11 +234,11 @@ def grad_mu(l_factorization, l_nonnegativity, l_relaxation,
 
     # gradient for the relaxation constraint from B.2.1, restricting absolute
     # values to <= 1
-    # gradient is Lagrange multiplier if |mu| > 1, 0 otherwise
+    # gradient is sign(mu) * Lagrange multiplier if |mu| > 1, 0 otherwise
     A = np.maximum(np.abs(mu[:,:,:d+1]) -
                    np.ones((L, D, d+1)), 0)
-    result[:,:,:d+1] += np.where(A > 0, l_relaxation, A)
-
+    signed_l_relaxation = np.sign(mu[:,:,:d+1]) * l_relaxation
+    result[:,:,:d+1] += np.where(A > 0, signed_l_relaxation, A)
 
     return result
 
@@ -258,8 +258,36 @@ def grad_lm_fact(l_factorization, l_nonnegativity, l_relaxation,
 
     # Each multiplier corresponds to one entry of this tensor
     return M_d - RRt
-    # Sum over all the terms of M_d - RRt
-    return np.einsum('abij,abij->', M_d, -1 * RRt)
+
+def grad_lm_nonnegativity(l_factorization, l_nonnegativity, l_relaxation,
+                        mu, R, L, D, d):
+    """
+    Returns gradients of the Lagrange multipliers term of the Lagrangian, with
+    respect to the factorization terms of the Lagrange multipliers vector
+    """
+    result = np.zeros((L, D))
+    # 5. mu_(1,0)^l>=0, so linear if mu < 0, 0 otherwise
+    result[:,0] += np.minimum(mu[:,0,0], 0)
+
+    # 6. mu_(i,0)^l - 1 = 0 for i = 2, ..., D, so linear
+    result[:,1:] += mu[:,1:,0].reshape(L, D-1) - np.ones((L, D-1))
+    #jnp.einsum('ij,ij->',
+    #              mu[:,1:,0].reshape(L, D-1) -
+    #              jnp.ones((L, D-1)),
+    #              l_nonnegativity[:,1:])
+    return result
+
+def grad_lm_relaxation(l_factorization, l_nonnegativity, l_relaxation,
+                        mu, R, L, D, d):
+    """
+    Returns gradients of the Lagrange multipliers term of the Lagrangian, with
+    respect to the factorization terms of the Lagrange multipliers vector
+    """
+    # returns zero for each component with mu feasible, and |mu| - 1 for every
+    # component of mu in the infeasible i.e. |mu| > 1 region
+    return np.maximum(np.abs(mu[:,:,:d+1]) -
+                        np.ones((L, D, d+1)), 0)
+
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
 def restore_matrices(s,d,D,L):
