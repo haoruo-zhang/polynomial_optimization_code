@@ -153,6 +153,18 @@ def multiply_lagrangian(l_factorization, l_nonnegativity, l_relaxation,
     Method to multiply lagrange multiplier vector by the infeasabilities.
     Separated out from the LagrangeMultipliers class for use by jax autogradient
     """
+    ## TODO change from jax to numpy? Get rid of this hacky update
+    #M_np = np.zeros((L, D, d+1, d+1))
+    ##np_mu = np.asarray(jnp.copy(mu))
+    ## Repopulate M_d with mu values
+    #for n_i in range(2*d + 1):
+    #    lower = max(0, n_i - d)
+    #    upper = min(n_i, d)
+    #    for a in range(lower, upper+1):
+    #        M_np[:,:,a,upper-a] = mu[:,:,a]
+
+    #M_d = jnp.asarray(M_np)
+
     # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
     RRt = jnp.einsum('abik,abjk->abij', R, R)
     #RRt = jnp.inner(R, R) # = R @ R.T
@@ -181,52 +193,73 @@ def multiply_lagrangian(l_factorization, l_nonnegativity, l_relaxation,
     # TODO redundant B.2.2 numerical stability constraint
     return total
 
-def grad_factorization(l_factorization, l_nonnegativity, l_relaxation,
-                        mu, M_d, R, L, D, d):
+def grad_R(l_factorization, l_nonnegativity, l_relaxation,
+                        mu, R, L, D, d):
     """
     Returns gradients of the Lagrange multipliers term of the Lagrangian, with
     respect to the factorization matrix R
     """
-    result = np.zeros(R.shape)
-    for l in range(L):
-        for i in range(D):
-            for n in range(d+1):
-                for m in range(d+1):
-                    # add up effects from ith row of R @ R.T
-                    result[l,i,n,m] = -1 * np.inner(l_factorization[l,i,n,:],
-                                                    R[l,i,:,m])
-                    # add up effects from ith column of R @ R.T
-                    result[l,i,n,m] += -1 * np.inner(l_factorization[l,i,:,n],
-                                                    R[l,i,:,m])
-                    # this will "double-count" the (i,j)th entry of R @ R.T,
-                    # but this is equal to the derivative of this term anyway
-                    # r_ij^2 -> 2r_ij
+    result = -1 * np.einsum('abik,abkj->abij', l_factorization, R)
+    result += -1 * np.einsum('abki,abkj->abij', l_factorization, R)
+    return result
+
+def grad_mu(l_factorization, l_nonnegativity, l_relaxation,
+                        mu, R, L, D, d):
+    """
+    Returns gradients of the Lagrange multipliers term of the Lagrangian, with
+    respect to moments vector mu
+    """
+    result = np.zeros((L, D, 2*d + 1))
+
+    # factorization infeasibilities, linear in mu for each
+    # individual matrix term (one mu may occupy multiple terms in M_d)
+    # this is following the cross-diagonal form of M_d,
+    # that (M_d)_{a,b} = mu_{a+b}
+    for n_i in range(2*d + 1):
+        lower = max(0, n_i - d)
+        number = (d+1) - abs(d - n_i)
+        upper = lower + number
+        for k in range(number):
+            result[:,:,n_i] += l_factorization[:,:,lower+k,upper-1-k]
+
+    # highlight infeasible mu_1,0 (in this case, negatives)
+    infeas = np.copy(mu[:,0,0])
+    infeas[infeas >= 0] = 0
+    result[:,0,0] += np.where(infeas < 0, l_nonnegativity[:,0], infeas)
+
+    # gradient for mu_i,0 for i = 2, ..., D (constraint is == 1)
+    # this is just the Lagrange multiplier because constraint is linear
+    # function of mu
+    result[:,1:,0] += l_nonnegativity[:,1:]
+
+    # gradient for the relaxation constraint from B.2.1, restricting absolute
+    # values to <= 1
+    # gradient is Lagrange multiplier if |mu| > 1, 0 otherwise
+    A = np.maximum(np.abs(mu[:,:,:d+1]) -
+                   np.ones((L, D, d+1)), 0)
+    result[:,:,:d+1] += np.where(A > 0, l_relaxation, A)
+
 
     return result
-    total = 0
 
-    # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
-    # Penalize inaccurate factorizations
-    # add up Lagrange multipliers times each componentwise difference
-    # between M_d and R @ R.T
-    total += jnp.einsum('abij,abij->', M_d - RRt, l_factorization)
-    
-    # 5. mu_(1,0)^l>=0, so anything positive is clipped
-    total += jnp.minimum(mu[:,0,0], 0) @ l_nonnegativity[:,0]
+def grad_lm_fact(l_factorization, l_nonnegativity, l_relaxation,
+                        mu, R, L, D, d):
+    """
+    Returns gradients of the Lagrange multipliers term of the Lagrangian, with
+    respect to the factorization terms of the Lagrange multipliers vector
+    """
+    # RRt = R @ R.T
+    RRt = jnp.einsum('abik,abjk->abij', R, R)
+    # Set up M_d
+    M_d = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
+             for m in range(d+1)]
+             for i in range(D)]
+             for l in range(L)])
 
-    # 6. mu_(i,0)^l - 1 = 0
-    total += jnp.einsum('ij,ij->',
-                  mu[:,1:,0].reshape(L, D-1) -
-                  jnp.ones((L, D-1)),
-                  l_nonnegativity[:,1:])
-
-    # B.2.1. check that relevant moments have absolute value at most 1
-    A = jnp.maximum(jnp.abs(mu[:,:,:d+1]) -
-                   jnp.ones((L, D, d+1)), 0)
-    total += jnp.einsum('ijk,ijk->', A, l_relaxation)
-
-    # TODO redundant B.2.2 numerical stability constraint
-    return total
+    # Each multiplier corresponds to one entry of this tensor
+    return M_d - RRt
+    # Sum over all the terms of M_d - RRt
+    return np.einsum('abij,abij->', M_d, -1 * RRt)
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
 def restore_matrices(s,d,D,L):
