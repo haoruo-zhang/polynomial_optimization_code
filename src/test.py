@@ -555,7 +555,7 @@ class TestPenaltyGradient(unittest.TestCase):
         self.L = L
         self.D = D
         self.d = d
-        self.gamma = 2
+        self.gamma = gamma
 
         # Set reproducible pool of randomness
         self.rand = np.random.RandomState(109332085)
@@ -644,6 +644,55 @@ class TestPenaltyGradient(unittest.TestCase):
         #print('jax_result = {}'.format(jax_result))
         #print('hardcoded_result = {}'.format(hardcoded_result))
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+
+    def test_factorization_R(self):
+        """
+        Test gradient of factorization constraint with respect to R
+        """
+        L = self.L
+        D = self.D
+        d = self.d
+
+        # Test if the existing factorization gap M_d - R @ R.T is registered
+        # TODO add wrapper function to fix [0] unpacking for jax gradient
+        jax_result = self.grad_mu(self.free_vars.mu, self.free_vars.M_d,
+                                 self.free_vars.R)[0]
+        hardcoded_result = grad_penalty_mu(self.free_vars.mu,
+                                           self.free_vars.M_d,
+                                           self.free_vars.R, self.gamma, L, D,
+                                           d)
+        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+
+        # Test if "random" (but fixed) mu, M_d, and R give the same answer
+        # Unlike for the gradients of the multiplier term, here there is no
+        # interaction between entries of mu and M_d, so the answers will still
+        # be the same even if they have no connection
+        #self.free_vars.mu = self.rand.random_sample((L, D, 2 * d+1))
+        #self.free_vars.M_d = self.rand.random_sample((L, D, d+1, d+1))
+        self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
+        jax_result = self.grad_R(self.free_vars.mu, self.free_vars.M_d,
+                                 self.free_vars.R)[0]
+        hardcoded_result = grad_penalty_R(self.free_vars.mu, self.free_vars.M_d,
+                                 self.free_vars.R, self.gamma, L, D, d)
+        #print('gamma = {}'.format(self.gamma))
+        #print('M_d = {}'.format(self.free_vars.M_d))
+        #print('R = {}'.format(self.free_vars.R))
+        #print('R @ R.T = {}'.format(self.free_vars.R @ self.free_vars.R))
+        #print('jax_result = {}'.format(jax_result))
+        #print('hardcoded_result = {}'.format(hardcoded_result))
+        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+
+        # Randomized mu and M_d should yield incorrect answers, as jax
+        # calculates gradient using M_d while hardcoded uses mu
+        self.free_vars.mu = self.rand.random_sample((L, D, 2 * d+1))
+        self.free_vars.M_d = self.rand.random_sample((L, D, d+1, d+1))
+        self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
+        jax_result = self.grad_R(self.free_vars.mu, self.free_vars.M_d,
+                                 self.free_vars.R)[0]
+        hardcoded_result = grad_penalty_R(self.free_vars.mu, self.free_vars.M_d,
+                                 self.free_vars.R, self.gamma, L, D, d)
+        self.assertFalse(np.isclose(jax_result, hardcoded_result).all())
+
     
 
 if __name__ == '__main__':
