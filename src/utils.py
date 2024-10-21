@@ -260,32 +260,7 @@ def grad_penalty_R(mu, M_d, R, gamma, L, D, d):
     """
     # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
     RRt = np.einsum('abik,abjk->abij', R, R)
-    #RRt = jnp.inner(R, R) # = R @ R.T
-    result = np.zeros((L, D, d+1, d+1))
-
-    for i in range(d+1):
-        for j in range(d+1):
-            # Add up the partials w/r/t R_{i,j} from each
-            # term in column i or R @ R.T
-            for x in range(d+1):
-                term = np.copy(mu[:,:,i+x])
-                term -= np.einsum('abk,abk->ab', R[:,:,i,:], R[:,:,x,:])
-                term *= -2 * R[:,:,x,j]
-                result[:,:,i,j] += term
-
-
-            # Add up the partials w/r/t R_{i,j} from each
-            # term in row i of R @ R.T (double-counting just yields the
-            # correct derivative)
-            # TODO maybe the double-counting causes a problem here?
-            for y in range(d+1):
-                term = np.copy(mu[:,:,i+y])
-                term -= np.einsum('abk,abk->ab', R[:,:,i,:], R[:,:,y,:])
-                term *= -2 * R[:,:,y,j]
-                result[:,:,i,j] += term
-
-
-    return (gamma / 2) * result
+    return 2 * gamma * (RRt - M_d) @ R
 
 def grad_R(l_factorization, l_nonnegativity, l_relaxation,
                         mu, R, L, D, d):
