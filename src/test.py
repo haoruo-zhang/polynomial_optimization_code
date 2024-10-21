@@ -610,7 +610,7 @@ class TestPenaltyGradient(unittest.TestCase):
         # gradient with respect to R
         self.grad_R = jaxgrad(partial(new_penalty, gamma=gamma, L=L, D=D, d=d), argnums=(2,))
 
-    def test_factorization_mu(self):
+    def test_mu(self):
         """
         Test gradient of factorization constraint with respect to mu
         """
@@ -645,7 +645,7 @@ class TestPenaltyGradient(unittest.TestCase):
         #print('hardcoded_result = {}'.format(hardcoded_result))
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
 
-    def test_factorization_R(self):
+    def test_R(self):
         """
         Test gradient of factorization constraint with respect to R
         """
@@ -663,12 +663,7 @@ class TestPenaltyGradient(unittest.TestCase):
                                            d)
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
 
-        # Test if "random" (but fixed) mu, M_d, and R give the same answer
-        # Unlike for the gradients of the multiplier term, here there is no
-        # interaction between entries of mu and M_d, so the answers will still
-        # be the same even if they have no connection
-        #self.free_vars.mu = self.rand.random_sample((L, D, 2 * d+1))
-        #self.free_vars.M_d = self.rand.random_sample((L, D, d+1, d+1))
+        # Test if random R gives correct answer
         self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
         jax_result = self.grad_R(self.free_vars.mu, self.free_vars.M_d,
                                  self.free_vars.R)[0]

@@ -239,8 +239,6 @@ def grad_penalty_mu(mu, M_d, R, gamma, L, D, d):
     result[:,0,0] += infeas
 
     # gradient for mu_i,0 for i = 2, ..., D (constraint is == 1)
-    # this is just the Lagrange multiplier because constraint is linear
-    # function of mu
     result[:,1:,0] += mu[:,1:,0] - np.ones((L, D-1))
 
     # gradient for the relaxation constraint from B.2.1, restricting absolute
