@@ -18,7 +18,10 @@ class TestPhi(unittest.TestCase):
 
 class TestPolynomial(unittest.TestCase):
     def setUp(self):
-        self.ground_truth = []
+        return
+
+    def test_0(self):
+        p = ExampleG(2)
         true_coefficients = [4.00000000000000,
                              1/8,
                              3/8,
@@ -37,8 +40,11 @@ class TestPolynomial(unittest.TestCase):
                        (0, 3),
                        (0, 2),
                        (0, 0)]
-        self.ground_truth.append(PolySupport(true_coefficients, true_powers))
+        self.assertEqual(p.coefficients, true_coefficients)
+        self.assertEqual(p.powers, true_powers)
 
+    def test_1(self):
+        p = ExampleG(3)
         true_coefficients = [8 / 3,
                              1 / 27,
                              1 / 9,
@@ -56,7 +62,6 @@ class TestPolynomial(unittest.TestCase):
                              1 / 27,
                              -8 / 3,
                              1.0]
-
         true_powers = [(4, 0, 0),
                        (3, 0, 0),
                        (2, 1, 0),
@@ -74,18 +79,8 @@ class TestPolynomial(unittest.TestCase):
                        (0, 0, 3),
                        (0, 0, 2),
                        (0, 0, 0)]
-
-        self.ground_truth.append(PolySupport(true_coefficients, true_powers))
-
-    def test_0(self):
-        p = ExampleG(2)
-        self.assertEqual(p.coefficients, self.ground_truth[0].coefficients)
-        self.assertEqual(p.powers, self.ground_truth[0].powers)
-
-    def test_1(self):
-        p = ExampleG(3)
-        self.assertEqual(p.coefficients, self.ground_truth[1].coefficients)
-        self.assertEqual(p.powers, self.ground_truth[1].powers)
+        self.assertEqual(p.coefficients, true_coefficients)
+        self.assertEqual(p.powers, true_powers)
 
 class TestLagrangeMultipliers(unittest.TestCase):
     def setUp(self):
@@ -158,6 +153,19 @@ class TestLagrangeMultipliers(unittest.TestCase):
 
     # TODO test moments absolute value <= 1 constraints
     # TODO redundant B.2.2 numerical stability constraint
+
+class TestObjectiveGradient(unittest.TestCase):
+    def setUp(self):
+        L = 2
+        D = 2
+        d = 4
+
+        self.L = L
+        self.D = D
+        self.d = d
+
+        self.p = ExampleG(D)
+
 
 class TestMultiplierGradient(unittest.TestCase):
     def setUp(self):

@@ -14,6 +14,9 @@ class PolySupport:
         self.coefficients = coefficients
         self.powers = powers
 
+    def gradient(self):
+        pass
+
 # Polynomial support of the polynomial in example 3.2 of Letourneau et al. 2024
 class ExampleG(PolySupport):
     """
