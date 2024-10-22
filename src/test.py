@@ -166,6 +166,56 @@ class TestObjectiveGradient(unittest.TestCase):
 
         self.p = ExampleG(D)
 
+        # Set reproducible pool of randomness
+        self.rand = np.random.RandomState(109332085)
+
+        # Construct moment vector and matrices for uniform distribution over [-1,1]
+        mu_vector = np.array([1 / (i+1) if i % 2 == 0 else 0 for i in range(2*d+1)])
+        self.mu = np.array([[np.copy(mu_vector) for i in range(D)] for l in range(L)])
+
+        # gradient with respect to moments and moment matrices
+        self.jax_grad = jaxgrad(partial(new_objective,
+                                        coef=self.p.coefficients,
+                                        powers=self.p.powers,
+                                        L=L, D=D),
+                                argnums=(0,))
+
+        def auto_grad(mu):
+            #return np.copy(self.jax_grad(mu)[0])
+            return self.jax_grad(mu)[0]
+
+        self.grad = auto_grad
+
+
+    def test(self):
+        """
+        Test gradient of objective function
+        """
+        L = self.L
+        D = self.D
+        d = self.d
+
+        # Test if the existing factorization gap M_d - R @ R.T is registered
+        jax_result = self.grad(self.mu)
+        hardcoded_result = grad_objective(self.mu,
+                                          self.p.coefficients,
+                                          self.p.powers,
+                                          L, D, d)
+        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+
+        # Test if random mu gives correct answer
+        print('random\n========')
+        self.mu = 2 * self.rand.random_sample((L, D, 2*d + 1)) - 1
+        jax_result = self.grad(self.mu)
+        hardcoded_result = grad_objective(self.mu,
+                                          self.p.coefficients,
+                                          self.p.powers,
+                                          L, D, d)
+        print('jax = {}'.format(jax_result))
+        print('hardcoded = {}'.format(hardcoded_result))
+        print('diff = {}'.format(jax_result - hardcoded_result))
+        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+
 
 class TestMultiplierGradient(unittest.TestCase):
     def setUp(self):

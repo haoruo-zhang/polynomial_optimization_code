@@ -1,4 +1,3 @@
-from collections import namedtuple
 from functools import partial
 import jax.numpy as jnp
 from jax import grad as jaxgrad
@@ -13,9 +12,6 @@ class PolySupport:
     def __init__(self, coefficients, powers):
         self.coefficients = coefficients
         self.powers = powers
-
-    def gradient(self):
-        pass
 
 # Polynomial support of the polynomial in example 3.2 of Letourneau et al. 2024
 class ExampleG(PolySupport):
@@ -47,7 +43,8 @@ class ExampleG(PolySupport):
             coefficients.append(coef)
 
             n = sp.degree_list(monomial)
-            powers.append(n)
+            n_int = tuple(int(n_i) for n_i in n)
+            powers.append(n_int)
 
         super().__init__(coefficients, powers)
 
@@ -149,6 +146,43 @@ class FreeVariables:
                  for m in range(d+1)]
                  for i in range(D)]
                  for l in range(L)])
+
+def phi(n, mu, D, L):
+    """
+    Calculates the sum of the product measures of a monomial given by n
+    This corresponds to phi in the paper
+
+    arguments:
+    n  -- the tuple of exponents
+    mu -- the moment vectors for D measures for each L product measures
+    D  -- the dimension of the hypercube
+    L  -- the number of product measures
+    """
+
+    # Set up array for calculations
+    # Each row corresponds to a product measure
+    # The entries are the moments specified by n for each component measure
+    A = jnp.array([
+        [mu[l,i,n_i] for (i, n_i) in zip(range(D), n)]
+        for l in range(L)])
+                            
+    # Multiply over the rows, then add up the resulting product measure values
+    return jnp.sum(jnp.prod(A, axis=1))
+
+def new_objective(mu, coef, powers, L, D):
+    """
+    Calculates the objective function given the polynomial and the moment
+    matrix
+
+    arguments:
+    coef -- a list of polynomial coefficients for each power tuple
+    powers -- list of power tuples specifiying the monomial
+    mu -- the moment vectors for product measures
+    D -- the dimension of the hypercube
+    L -- the number of product measures
+    """
+    # would numpy be faster, or would array creation slow it down?
+    return sum([p_n * phi(n, mu, D, L) for p_n, n in zip(coef, powers)])
 
 def multiply_lagrangian(l_factorization, l_nonnegativity, l_relaxation,
                         mu, M_d, R, L, D, d):
@@ -357,6 +391,48 @@ def grad_lm_relaxation(l_factorization, l_nonnegativity, l_relaxation,
     return np.maximum(np.abs(mu[:,:,:d+1]) -
                         np.ones((L, D, d+1)), 0)
 
+def grad_objective(mu, coef, powers, L, D, d):
+    """
+    Calculate the gradient of the objective polynomial with
+    respect to each product measure term
+    """
+    # Although the last d moments don't matter, we need this shape to be
+    # comparable with the jax result
+    result = np.zeros((L, D, 2 * d+1))
+
+    term = np.zeros((L, D))
+    for p_n, n in zip(coef, powers):
+        # Create L x D array of moments in the monomial
+        A = np.array([mu[:,i,n_i] for (i, n_i) in zip(range(D), n)]).T
+
+        # Stack up copies to use one for each of the D partials we will
+        # calculate for each of the L layers
+        B = np.stack([A for _ in range(D)], axis=0)
+
+        # Set the mu term of which we're taking the partial to 1, which
+        # sets up our multiplication below to yield exactly the partial
+        for i in range(D):
+            B[i,:,i] = np.ones((L,))
+
+        B = np.prod(B, axis=2)
+
+        # for each product measure term, add partial from each L in parallel
+        for (i, n_i) in zip(range(D), n):
+            result[:,i,n_i] += p_n * B[i,:]
+
+    return result
+
+    # Set up array for calculations
+    # Each row corresponds to a product measure
+    # The entries are the moments specified by n for each component measure
+    A = jnp.array([
+        [mu[l,i,n_i] for (i, n_i) in zip(range(D), n)]
+        for l in range(L)])
+                            
+    # Multiply over the rows, then add up the resulting product measure values
+    return jnp.sum(jnp.prod(A, axis=1))
+    return result
+
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
 def restore_matrices(s,d,D,L):
@@ -436,43 +512,6 @@ def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coeffi
     sum_result += penalty(D,L,d,x_M_D_L_list,x_R_L_list,gamma)
     return sum_result
 
-def phi(n, mu, D, L):
-    """
-    Calculates the sum of the product measures of a monomial given by n
-    This corresponds to phi in the paper
-
-    arguments:
-    n  -- the tuple of exponents
-    mu -- the moment vectors for D measures for each L product measures
-    D  -- the dimension of the hypercube
-    L  -- the number of product measures
-    """
-
-    # Set up array for calculations
-    # Each row corresponds to a product measure
-    # The entries are the moments specified by n for each component measure
-    A = jnp.array([
-        [mu[l,i,n_i] for (i, n_i) in zip(range(D), n)]
-        for l in range(L)])
-                            
-    # Multiply over the rows, then add up the resulting product measure values
-    return jnp.sum(jnp.prod(A, axis=1))
-
-def new_objective(coef, powers, M, D, L):
-    """
-    Calculates the objective function given the polynomial and the moment
-    matrix
-
-    arguments:
-    coef -- a list of polynomial coefficients for each power tuple
-    powers -- list of power tuples specifiying the monomial
-    mu -- the moment vectors for product measures
-    D -- the dimension of the hypercube
-    L -- the number of product measures
-    """
-    # would numpy be faster, or would array creation slow it down?
-    return sum([p_n * phi(n, mu, D, L) for p_n, n in zip(coef, powers)])
-
 #This is the sum of the polynomials
 def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
     sum = 0
@@ -488,7 +527,6 @@ def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
 
 #Lagrangian term
 def multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
-    
     sum = 0
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
