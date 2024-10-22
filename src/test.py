@@ -117,38 +117,38 @@ class TestLagrangeMultipliers(unittest.TestCase):
         # violations of constraints (R = 0 initially)
         self.assertEqual(self.lm.multiply(self.free_vars), 0)
 
-        self.lm.factorization = self.lm.factorization.at[0,0,3,1].set(1)
+        self.lm.factorization[0,0,3,1] = 1
         self.assertEqual(self.lm.multiply(self.free_vars), 1/5)
 
         # Should add nothing to product, no violation here
-        self.lm.factorization = self.lm.factorization.at[0,0,2,1].set(1)
+        self.lm.factorization[0,0,2,1] = 1
         self.assertEqual(self.lm.multiply(self.free_vars), 1/5)
 
-        self.lm.factorization = self.lm.factorization.at[0,0,4,2].set(-1)
+        self.lm.factorization[0,0,4,2] = -1
         self.assertAlmostEqual(self.lm.multiply(self.free_vars), 1/5 - 1/7)
 
         # Fix violation in M_d[0,0,3,1]
-        self.free_vars.R = self.free_vars.R.at[0,0,3,0].set(1 / 5)
-        self.free_vars.R = self.free_vars.R.at[0,0,1,0].set(1)
+        self.free_vars.R[0,0,3,0] = 1 / 5
+        self.free_vars.R[0,0,1,0] = 1
         self.free_vars.update_RRt()
         self.assertEqual(self.lm.multiply(self.free_vars), -1/7)
 
 
     def test_nonnegativity_penalty(self):
-        self.lm.nonnegativity = self.lm.nonnegativity.at[1,0].set(3.7)
-        self.free_vars.mu = self.free_vars.mu.at[1,0,0].set(-1.9)
+        self.lm.nonnegativity[1,0] = 3.7
+        self.free_vars.mu[1,0,0] = -1.9
         self.assertEqual(self.lm.multiply(self.free_vars), -7.03)
 
     def test_mu_equality_constraints(self):
-        self.lm.nonnegativity = self.lm.nonnegativity.at[1,1].set(5.8)
-        self.free_vars.mu = self.free_vars.mu.at[1,1,0].set(8.03)
+        self.lm.nonnegativity[1,1] = 5.8
+        self.free_vars.mu[1,1,0] = 8.03
         self.assertAlmostEqual(self.lm.multiply(self.free_vars), 40.774)
 
         # should not change value
-        self.lm.nonnegativity = self.lm.nonnegativity.at[0,1].set(-1_000)
+        self.lm.nonnegativity[0,1] = -1_000
         self.assertAlmostEqual(self.lm.multiply(self.free_vars), 40.774)
 
-        self.free_vars.mu = self.free_vars.mu.at[0,1,0].set(0.5)
+        self.free_vars.mu[0,1,0] = 0.5
         self.assertAlmostEqual(self.lm.multiply(self.free_vars), 540.774)
 
     # TODO test moments absolute value <= 1 constraints
@@ -204,16 +204,12 @@ class TestObjectiveGradient(unittest.TestCase):
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
 
         # Test if random mu gives correct answer
-        print('random\n========')
         self.mu = 2 * self.rand.random_sample((L, D, 2*d + 1)) - 1
         jax_result = self.grad(self.mu)
         hardcoded_result = grad_objective(self.mu,
                                           self.p.coefficients,
                                           self.p.powers,
                                           L, D, d)
-        print('jax = {}'.format(jax_result))
-        print('hardcoded = {}'.format(hardcoded_result))
-        print('diff = {}'.format(jax_result - hardcoded_result))
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
 
 
@@ -297,8 +293,8 @@ class TestMultiplierGradient(unittest.TestCase):
         d = self.d
 
         # Test if one lagrange multiplier factor and one R element change works
-        self.lm.factorization = self.lm.factorization.at[0,1,1,3].set(0.5)
-        self.free_vars.R = self.free_vars.R.at[0,1,1,1].set(1)
+        self.lm.factorization[0,1,1,3] = 0.5
+        self.free_vars.R[0,1,1,1] = 1
         jax_result = self.grad_R(self.lm.factorization, self.lm.nonnegativity,
                           self.lm.relaxation, self.free_vars.mu,
                           self.free_vars.M_d, self.free_vars.R)
@@ -331,8 +327,8 @@ class TestMultiplierGradient(unittest.TestCase):
         d = self.d
 
         # Test if one lagrange multiplier factor and one R element change works
-        self.lm.factorization = self.lm.factorization.at[0,1,1,3].set(0.5)
-        self.free_vars.R = self.free_vars.R.at[0,1,1,1].set(1)
+        self.lm.factorization[0,1,1,3] = 0.5
+        self.free_vars.R[0,1,1,1] = 1
         jax_result = self.grad_mu(self.lm.factorization, self.lm.nonnegativity,
                           self.lm.relaxation, self.free_vars.mu,
                           self.free_vars.M_d, self.free_vars.R, L, D, d)
@@ -745,6 +741,45 @@ class TestPenaltyGradient(unittest.TestCase):
         hardcoded_result = grad_penalty_R(self.free_vars.mu, self.free_vars.M_d,
                                  self.free_vars.R, self.gamma, L, D, d)
         self.assertFalse(np.isclose(jax_result, hardcoded_result).all())
+
+class TestSolver(unittest.TestCase):
+    def setUp(self):
+        L = 6
+        D = 2
+        d = 4
+        gamma = 10
+
+        self.L = L
+        self.D = D
+        self.d = d
+        self.gamma = gamma
+
+        # Set reproducible pool of randomness
+        self.rand = np.random.RandomState(109332085)
+
+        # Construct moment vector and matrices for uniform distribution over [-1,1]
+        mu_vector = np.array([1 / (i+1) if i % 2 == 0 else 0 for i in range(2*d+1)])
+        mu = np.array([[np.copy(mu_vector) for d in range(D)] for l in range(L)])
+        M = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
+                        for m in range(d+1)]
+                        for i in range(D)]
+                        for l in range(L)])
+
+        R = np.zeros(M.shape)
+        RRt = np.zeros(M.shape)
+
+        pos_slack = np.ones((L, D))
+        abs_slack = np.zeros((L, D, d+1))
+
+        self.free_vars = FreeVariables(L, D, d, mu, R)
+
+        # lambda
+        self.lm = LagrangeMultipliers(L, D, d)
+
+    def test_example_2(self):
+        poly = ExampleG(self.D)
+        return
+        #solver(poly, self.gamma, self.L, self.D, self.d)
 
     
 

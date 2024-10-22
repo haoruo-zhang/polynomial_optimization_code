@@ -62,9 +62,9 @@ class LagrangeMultipliers:
         self.D = D
         self.d = d
 
-        self.factorization = jnp.zeros((L, D, d+1, d+1))
-        self.nonnegativity = jnp.zeros((L, D))
-        self.relaxation = jnp.zeros((L, D, d+1))
+        self.factorization = np.zeros((L, D, d+1, d+1))
+        self.nonnegativity = np.zeros((L, D))
+        self.relaxation = np.zeros((L, D, d+1))
 
     def multiply(self, free_vars):
         """
@@ -117,17 +117,17 @@ class FreeVariables:
     def __init__(self, L, D, d, mu=None, R=None, seed=None):
         random = np.random.default_rng(seed) # None will yield OS-selected seed
 
-        self.mu = jnp.array(mu) if mu is not None else random.random(
+        self.mu = np.array(mu) if mu is not None else random.random(
                 size=(L, D, 2 * d +1)) * 2 - jnp.ones((L, D, 2*d+1))
-        self.M_d = jnp.array([[[[mu[l,i,n+m] for n in range(d+1)]
+        self.M_d = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
                  for m in range(d+1)]
                  for i in range(D)]
                  for l in range(L)])
 
         if R is not None:
-            self.R = jnp.array(R)
+            self.R = np.array(R)
         else:
-            random_R = random.random(size=(L, D, d+1, d+1)) * 2 - jnp.ones((L, D, d+1, d+1))
+            random_R = random.random(size=(L, D, d+1, d+1)) * 2 - np.ones((L, D, d+1, d+1))
             self.R = random_R
 
         # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
@@ -139,13 +139,16 @@ class FreeVariables:
 
     def update_RRt(self):
         # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
-        self.RRt = jnp.einsum('abik,abjk->abij', self.R, self.R)
+        self.RRt = np.einsum('abik,abjk->abij', self.R, self.R)
 
     def update_M_d(self):
-        self.M_d = jnp.array([[[[self.mu[l,i,n+m] for n in range(d+1)]
-                 for m in range(d+1)]
-                 for i in range(D)]
-                 for l in range(L)])
+        #self.M_d = jnp.array([[[[self.mu[l,i,n+m] for n in range(d+1)]
+        #         for m in range(d+1)]
+        #         for i in range(D)]
+        #         for l in range(L)])
+        for n in range(d+1):
+            for m in range(d+1):
+                self.M_d[:,:,n,m] = self.mu[:,:,n+m]
 
 def phi(n, mu, D, L):
     """
@@ -433,6 +436,104 @@ def grad_objective(mu, coef, powers, L, D, d):
     return jnp.sum(jnp.prod(A, axis=1))
     return result
 
+def solver(poly, gamma, L, D, d):
+    """
+    D is the number of dimensions
+    d is the highest order in polynomial
+    L is the number of measures
+    rho is the value of penalty term gamma
+    This function will output a global mimimum point of polynomial on [-1,1]^{D} and it's relative error subject to the real minimum value
+    Lack a good stop condition and time of running is too long
+    """
+    coef = poly.coefficients
+    power = poly.powers
+
+    free_vars = FreeVariables(L, D, d)
+    return
+
+    x_input= generate_x_input_p2(D,d,L)
+    Lagrangian_coefficient = generate_lag(D,d,L)
+
+    iteration = 0
+    print("Now we begin with D = {}".format(D))
+
+    x_mu_D_L_list,x_R_L_list = restore_matrices(s=x_input,d=d,D=D,L=L)
+    x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
+
+    # term_3 is the sum of the penalty term, but without the rho*, just the sum
+    v_k = term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list)
+
+    while True:
+        iteration += 1
+        # the function of whole augumented lagrangian
+        aug_lagrangian_partial = partial(Augmented_Lagrangian, d=d, D=D, L=L, orders_list=orders_list,
+                                    coefficients_list=coefficients_list,
+                                    Lagrangian_coefficient=Lagrangian_coefficient, rho=rho)
+        
+        # the function of lagrangian term + penalty term
+        aug_lagrangian_without_obejective_partial = partial(Augmented_Lagrangian_without_objective, d=d, D=D, L=L,
+                                    Lagrangian_coefficient=Lagrangian_coefficient, rho=rho)
+        
+        # the gradient of the objective term
+        aug_lagrangian_objective_gradient = partial(jac_term1_new,d=d,D=D,L=L,orders_list=orders_list,coefficients_list=coefficients_list)
+
+        # the gradient of the lagrangian term + penalty term
+        aug_lagrangian_without_objective_partial_gradient = jax.grad(aug_lagrangian_without_obejective_partial)
+
+        # the gradient of the whole augumented lagrangian
+        aug_lagrangian_partial_gradient = lambda x:aug_lagrangian_objective_gradient(x)+aug_lagrangian_without_objective_partial_gradient(x)
+
+        print("-"*40)
+
+        # the minimize function
+        # Can adjust the parameter in the options
+        result = minimize(aug_lagrangian_partial, x0=x_input,
+                        method='L-BFGS-B',
+                        jac=aug_lagrangian_partial_gradient,
+                        options={
+                            'gtol': 1e-5,             # Stopping criterion (relative gradient)
+                            'ftol': 1e-7,             # Stopping criterion (absolute value)
+                            'maxcor': 40,             # The order of the approximation Hessian
+                        })
+
+        
+        print("This is {} iteration of LBFGS".format(iteration))
+        print("Minimum value of the Augmented Lagrangian function:", result.fun)
+        print("Was the optimization successful?", result.success)
+        print("Number of iterations:", result.nit)
+        print(result.message)
+        
+        x_input = result.x
+        # We use the update rule in the Samuel Burer paper
+
+        Lagrangian_coefficient,rho,v_k = update_everything(x_input,rho,Lagrangian_coefficient,v_k,d,D,L)
+
+        # Calculate the x_min
+        x_mu_D_L_list,_= restore_matrices(x_input,d,D,L)
+        x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
+        l_product_list = []
+        for l in range(L):
+            moment_product = 1
+            for i in range(D):
+                moment_product *= x_M_D_L_list[i][l][0,0]
+            l_product_list.append(moment_product)
+
+        max_index = l_product_list.index(max(l_product_list))
+        x_final= np.array([x_mu_D_L_list[i][max_index][1]/l_product_list[max_index] for i in range(D)])
+        value_final = polynomial(*x_final)
+        relative_error = abs((value_final-target_value)/ target_value)
+        print("current x_min is {}".format(x_final))
+        print("current relative error regarding polynomial value is {}".format(relative_error))
+
+        # Some stopping conditions
+        if relative_error<1e-5:
+            break
+        if iteration>100:
+            break
+        if rho>1e8:
+            break
+
+    return x_final,relative_error
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
 def restore_matrices(s,d,D,L):
