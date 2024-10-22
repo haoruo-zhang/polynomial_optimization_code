@@ -1,5 +1,6 @@
 venv/
 **/__pycache__/
+10_21\ update/
 .ipynb_checkpoints/
 *.txt
 *.swp
