@@ -1,8 +1,11 @@
 from functools import partial
 import jax.numpy as jnp
 from jax import grad as jaxgrad
+#import numpy.lib.stride_tricks.as_strided as as_strided
+# TODO fix strange thing with attempted import of as_strided alone
 import numpy as np
 import sympy as sp
+from scipy.optimize import minimize
 import torch
 
 # The support of the polynomial objective function
@@ -118,8 +121,9 @@ class FreeVariables:
         random = np.random.default_rng(seed) # None will yield OS-selected seed
 
         self.mu = np.array(mu) if mu is not None else random.random(
-                size=(L, D, 2 * d +1)) * 2 - jnp.ones((L, D, 2*d+1))
-        self.M_d = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
+                size=(L, D, 2 * d +1)) * 2 - np.ones((L, D, 2*d+1))
+        #self.mu = random.random(size=(L, D, 2 * d + 1)) * 2 - np.ones((L, D, 2*d+1))
+        self.M_d = np.array([[[[self.mu[l,i,n+m] for n in range(d+1)]
                  for m in range(d+1)]
                  for i in range(D)]
                  for l in range(L)])
@@ -136,6 +140,11 @@ class FreeVariables:
         # TODO reevaluate and remove these?
         self.pos_slack = jnp.ones((L, D))
         self.abs_slack = jnp.zeros((L, D, d+1))
+
+    def flattened(self):
+        # TODO does this copy the arrays? If not, does this cause problems?
+        #return np.concatenate((self.mu, self.R), axis=0)
+        return np.concatenate((self.mu.flatten(), self.R.flatten()), axis=0)
 
     def update_RRt(self):
         # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
@@ -425,16 +434,54 @@ def grad_objective(mu, coef, powers, L, D, d):
 
     return result
 
-    # Set up array for calculations
-    # Each row corresponds to a product measure
-    # The entries are the moments specified by n for each component measure
-    A = jnp.array([
-        [mu[l,i,n_i] for (i, n_i) in zip(range(D), n)]
-        for l in range(L)])
-                            
-    # Multiply over the rows, then add up the resulting product measure values
-    return jnp.sum(jnp.prod(A, axis=1))
-    return result
+def new_augmented_lagrangian(free_vars, M_d, lm, coef, powers, gamma, L, D, d):
+    """
+    free_vars - passed as a 1-D array for scipy's minimize function
+    M_d - passed separately, is updated according to free_vars
+    """
+    # Reconstruct mu and R from flattened version without having to reshape them
+    mu_size = L * D * (2 * d + 1)
+    mu = np.lib.stride_tricks.as_strided(free_vars[:mu_size],
+                    shape=(L, D, 2*d + 1),
+                    writeable=False)
+    R = np.lib.stride_tricks.as_strided(free_vars[mu_size:], shape=(L, D, d+1, d+1), writeable=False)
+    for n in range(d+1):
+        for m in range(d+1):
+            M_d[:,:,n,m] = mu[:,:,n+m]
+
+    return (new_objective(mu, coef, powers, L, D)
+            + multiply_lagrangian(lm.factorization, lm.nonnegativity,
+                                  lm.relaxation, mu, M_d, R, L, D, d)
+            + new_penalty(mu, M_d, R, gamma, L, D, d))
+
+def new_gradient(free_vars, M_d, lm, coef, powers, gamma, L, D, d):
+    """
+    Gradient of the new augmented lagrangian with respect to the free variables
+    mu, R contained in free_vars (reflected in M_d too)
+    """
+    # Reconstruct mu and R from flattened version without having to reshape them
+    mu_size = L * D * (2 * d + 1)
+    mu = np.lib.stride_tricks.as_strided(free_vars[:mu_size],
+                    shape=(L, D, 2*d + 1),
+                    writeable=False)
+    R = np.lib.stride_tricks.as_strided(free_vars[mu_size:], shape=(L, D, d+1, d+1), writeable=False)
+
+    for n in range(d+1):
+        for m in range(d+1):
+            M_d[:,:,n,m] = mu[:,:,n+m]
+
+    mu_grad = np.zeros((L, D, 2*d + 1))
+    mu_grad += grad_objective(mu, coef, powers, L, D, d)
+    mu_grad += grad_mu(lm.factorization, lm.nonnegativity, lm.relaxation,
+                       mu, R, L, D, d)
+    mu_grad += grad_penalty_mu(mu, M_d, R, gamma, L, D, d)
+
+    R_grad = grad_R(lm.factorization, lm.nonnegativity, lm.relaxation,
+                       mu, R, L, D, d)
+
+    # return gradients flattened and concatenated
+    return np.concatenate((mu_grad.flatten(), R_grad.flatten()), axis=0)
+
 
 def solver(poly, gamma, L, D, d):
     """
@@ -446,64 +493,53 @@ def solver(poly, gamma, L, D, d):
     Lack a good stop condition and time of running is too long
     """
     coef = poly.coefficients
-    power = poly.powers
+    powers = poly.powers
 
-    free_vars = FreeVariables(L, D, d)
-    return
+    # TODO change how this is managed, may be best to use exclusively arrays
+    # and not bother with this object
+    free_vars_obj = FreeVariables(L, D, d)
+    free_vars = free_vars_obj.flattened()
+    M_d = free_vars_obj.M_d
 
-    x_input= generate_x_input_p2(D,d,L)
-    Lagrangian_coefficient = generate_lag(D,d,L)
+    lm = LagrangeMultipliers(L, D, d)
+
 
     iteration = 0
     print("Now we begin with D = {}".format(D))
 
-    x_mu_D_L_list,x_R_L_list = restore_matrices(s=x_input,d=d,D=D,L=L)
-    x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
-
-    # term_3 is the sum of the penalty term, but without the rho*, just the sum
-    v_k = term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list)
+    # v_k is the penalty term not scaled by gamma / 2
+    v_k = (2 / gamma) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
+                                    free_vars_obj.R, gamma, L, D, d)
 
     while True:
         iteration += 1
-        # the function of whole augumented lagrangian
-        aug_lagrangian_partial = partial(Augmented_Lagrangian, d=d, D=D, L=L, orders_list=orders_list,
-                                    coefficients_list=coefficients_list,
-                                    Lagrangian_coefficient=Lagrangian_coefficient, rho=rho)
-        
-        # the function of lagrangian term + penalty term
-        aug_lagrangian_without_obejective_partial = partial(Augmented_Lagrangian_without_objective, d=d, D=D, L=L,
-                                    Lagrangian_coefficient=Lagrangian_coefficient, rho=rho)
-        
-        # the gradient of the objective term
-        aug_lagrangian_objective_gradient = partial(jac_term1_new,d=d,D=D,L=L,orders_list=orders_list,coefficients_list=coefficients_list)
-
-        # the gradient of the lagrangian term + penalty term
-        aug_lagrangian_without_objective_partial_gradient = jax.grad(aug_lagrangian_without_obejective_partial)
-
-        # the gradient of the whole augumented lagrangian
-        aug_lagrangian_partial_gradient = lambda x:aug_lagrangian_objective_gradient(x)+aug_lagrangian_without_objective_partial_gradient(x)
-
         print("-"*40)
+        # NOT a partial derivative
+        partial_func = partial(new_augmented_lagrangian, M_d=M_d, lm=lm,
+                               coef=coef, powers=powers, gamma=gamma, L=L, D=D,
+                               d=d)
+        # NOT a partial derivative
+        partial_grad = partial(new_gradient, M_d=M_d, lm=lm,
+                               coef=coef, powers=powers, gamma=gamma, L=L, D=D,
+                               d=d)
 
-        # the minimize function
-        # Can adjust the parameter in the options
-        result = minimize(aug_lagrangian_partial, x0=x_input,
+        result = minimize(partial_func, x0=free_vars,
                         method='L-BFGS-B',
-                        jac=aug_lagrangian_partial_gradient,
+                        jac=partial_grad,
                         options={
                             'gtol': 1e-5,             # Stopping criterion (relative gradient)
                             'ftol': 1e-7,             # Stopping criterion (absolute value)
                             'maxcor': 40,             # The order of the approximation Hessian
                         })
-
         
         print("This is {} iteration of LBFGS".format(iteration))
         print("Minimum value of the Augmented Lagrangian function:", result.fun)
         print("Was the optimization successful?", result.success)
         print("Number of iterations:", result.nit)
         print(result.message)
-        
-        x_input = result.x
+        free_vars = result.x
+        print(free_vars[:10])
+        return
         # We use the update rule in the Samuel Burer paper
 
         Lagrangian_coefficient,rho,v_k = update_everything(x_input,rho,Lagrangian_coefficient,v_k,d,D,L)

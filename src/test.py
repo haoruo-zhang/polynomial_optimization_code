@@ -778,8 +778,8 @@ class TestSolver(unittest.TestCase):
 
     def test_example_2(self):
         poly = ExampleG(self.D)
+        solver(poly, self.gamma, self.L, self.D, self.d)
         return
-        #solver(poly, self.gamma, self.L, self.D, self.d)
 
     
 
