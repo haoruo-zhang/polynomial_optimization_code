@@ -604,7 +604,7 @@ class TestPenaltyGradient(unittest.TestCase):
         L = 2
         D = 2
         d = 4
-        gamma = 2
+        gamma = 10
 
         self.L = L
         self.D = D

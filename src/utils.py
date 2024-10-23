@@ -102,6 +102,22 @@ class LagrangeMultipliers:
         # TODO redundant B.2.2 numerical stability constraint
         return total
 
+    def update(self, free_vars, gamma):
+        """
+        Update Lagrange Multipliers according to the Burer Monteiro 2003 paper.
+        Note that gamma here corresponds to sigma in their paper, and that
+        we are adding to the multipliers when they subtract because they flip
+        a sign in their definition of the augmented Lagrangian
+        """
+        # TODO update RRt and M_d?
+        self.factorization += gamma * (free_vars.M_d - free_vars.RRt)
+
+        self.nonnegativity[:,0] += gamma * np.minimum(free_vars.mu[:,0,0], 0)
+        self.nonnegativity[:,1:] += gamma * (free_vars.mu[:,1:,0].reshape(self.L, self.D-1) -
+                      np.ones((self.L, self.D-1)))
+        self.relaxation += gamma * np.maximum(np.abs(free_vars.mu[:,:,:self.d+1]) -
+                       np.ones((self.L, self.D, self.d+1)), 0)
+
 # Define data structure for the moment matrices M_d and their factorizations
 # R such that M_d = R @ R.T. This equality does not always hold during execution
 # of the algorithm, but differences will be penalized in the Lagrangian
@@ -118,6 +134,10 @@ class LagrangeMultipliers:
 # abs_slack  - slack variable to enforce |mu_{i,n_i}^l| <= 1 from B.2.1
 class FreeVariables:
     def __init__(self, L, D, d, mu=None, R=None, seed=None):
+        self.L = L
+        self.D = D
+        self.d = d
+
         random = np.random.default_rng(seed) # None will yield OS-selected seed
 
         self.mu = np.array(mu) if mu is not None else random.random(
@@ -158,6 +178,17 @@ class FreeVariables:
         for n in range(d+1):
             for m in range(d+1):
                 self.M_d[:,:,n,m] = self.mu[:,:,n+m]
+
+    def optimal_location(self):
+        # calculate probability masses of each product measure
+        masses = np.prod(self.mu[:,:,0], axis=1)
+        l = np.argmax(masses)
+        x = np.zeros((self.D,))
+        denominator = np.prod(self.mu[l,:,0])
+        x = self.mu[l,:,1] / denominator
+        #for i in range(self.D):
+        #    x[i] = self.mu[l,i,1] / np.prod(self.mu[l,:,0]
+        return x
 
 def phi(n, mu, D, L):
     """
@@ -483,7 +514,7 @@ def new_gradient(free_vars, M_d, lm, coef, powers, gamma, L, D, d):
     return np.concatenate((mu_grad.flatten(), R_grad.flatten()), axis=0)
 
 
-def solver(poly, gamma, L, D, d):
+def solver(poly, gamma, L, D, d, max_iter=20):
     """
     D is the number of dimensions
     d is the highest order in polynomial
@@ -495,6 +526,9 @@ def solver(poly, gamma, L, D, d):
     coef = poly.coefficients
     powers = poly.powers
 
+    GAMMA_MULTIPLIER = 10
+    eta = 1/4
+
     # TODO change how this is managed, may be best to use exclusively arrays
     # and not bother with this object
     free_vars_obj = FreeVariables(L, D, d)
@@ -503,17 +537,14 @@ def solver(poly, gamma, L, D, d):
 
     lm = LagrangeMultipliers(L, D, d)
 
-
-    iteration = 0
     print("Now we begin with D = {}".format(D))
 
     # v_k is the penalty term not scaled by gamma / 2
     v_k = (2 / gamma) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
                                     free_vars_obj.R, gamma, L, D, d)
 
-    while True:
-        iteration += 1
-        print("-"*40)
+    for iteration in range(max_iter):
+        #print("-"*40)
         # NOT a partial derivative
         partial_func = partial(new_augmented_lagrangian, M_d=M_d, lm=lm,
                                coef=coef, powers=powers, gamma=gamma, L=L, D=D,
@@ -532,44 +563,47 @@ def solver(poly, gamma, L, D, d):
                             'maxcor': 40,             # The order of the approximation Hessian
                         })
         
-        print("This is {} iteration of LBFGS".format(iteration))
-        print("Minimum value of the Augmented Lagrangian function:", result.fun)
-        print("Was the optimization successful?", result.success)
-        print("Number of iterations:", result.nit)
-        print(result.message)
-        free_vars = result.x
-        print(free_vars[:10])
-        return
-        # We use the update rule in the Samuel Burer paper
+        print("\nIteration: {}".format(iteration))
+        print("min L = ", result.fun)
+        #print("Was the optimization successful?", result.success)
+        print("Number of L-BFGS iterations:", result.nit)
+        #print(result.message)
 
-        Lagrangian_coefficient,rho,v_k = update_everything(x_input,rho,Lagrangian_coefficient,v_k,d,D,L)
+        # update free variables and our object tracking them
+        old_free_vars = np.copy(free_vars)
+        free_vars = result.x
+        print('|free_vars - old_free_vars| = {}'.format(
+            np.linalg.norm(free_vars - old_free_vars)))
+        mu_size = L * D * (2 * d + 1)
+        free_vars_obj.mu = np.lib.stride_tricks.as_strided(free_vars[:mu_size],
+                        shape=(L, D, 2*d + 1),
+                        writeable=False)
+        free_vars_obj.R = np.lib.stride_tricks.as_strided(free_vars[mu_size:], shape=(L, D, d+1, d+1), writeable=False)
+        for n in range(d+1):
+            for m in range(d+1):
+                free_vars_obj.M_d[:,:,n,m] = free_vars_obj.mu[:,:,n+m]
+
+
+        # Update lm or gamma according to BM paper (note our gamma is their sigma)
+        v = (2 / gamma ) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
+                                       free_vars_obj.R, gamma, L, D, d)
+        print('v_k = {}'.format(v_k))
+        print('v = {}'.format(v))
+        if v < eta * v_k:
+            lm.update(free_vars_obj, gamma)
+            v_k = v
+            print('updated lagrangian')
+        else:
+            gamma *= GAMMA_MULTIPLIER
+            v_k = v
+            print('updated gamma = {}'.format(gamma))
 
         # Calculate the x_min
-        x_mu_D_L_list,_= restore_matrices(x_input,d,D,L)
-        x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
-        l_product_list = []
-        for l in range(L):
-            moment_product = 1
-            for i in range(D):
-                moment_product *= x_M_D_L_list[i][l][0,0]
-            l_product_list.append(moment_product)
+        x_min = free_vars_obj.optimal_location()
+        print('x_min = {}'.format(x_min))
 
-        max_index = l_product_list.index(max(l_product_list))
-        x_final= np.array([x_mu_D_L_list[i][max_index][1]/l_product_list[max_index] for i in range(D)])
-        value_final = polynomial(*x_final)
-        relative_error = abs((value_final-target_value)/ target_value)
-        print("current x_min is {}".format(x_final))
-        print("current relative error regarding polynomial value is {}".format(relative_error))
+    # Calculate and return final results
 
-        # Some stopping conditions
-        if relative_error<1e-5:
-            break
-        if iteration>100:
-            break
-        if rho>1e8:
-            break
-
-    return x_final,relative_error
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x
 def restore_matrices(s,d,D,L):
