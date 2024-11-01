@@ -4,6 +4,7 @@ venv/
 .ipynb_checkpoints/
 *.txt
 *.swp
+*.npy
 **/Untitled*.ipynb
 new_functions.py
 exp.py

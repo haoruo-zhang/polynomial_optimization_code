@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 import unittest
 from utils import *
@@ -601,10 +602,10 @@ class TestMultiplierGradient(unittest.TestCase):
 
 class TestPenaltyGradient(unittest.TestCase):
     def setUp(self):
-        L = 2
+        L = 6
         D = 2
         d = 4
-        gamma = 10
+        gamma = 1000
 
         self.L = L
         self.D = D
@@ -742,6 +743,395 @@ class TestPenaltyGradient(unittest.TestCase):
                                  self.free_vars.R, self.gamma, L, D, d)
         self.assertFalse(np.isclose(jax_result, hardcoded_result).all())
 
+class TestGradient(unittest.TestCase):
+    def setUp(self):
+        L = 6
+        D = 2
+        d = 4
+        gamma = 10
+
+        self.L = L
+        self.D = D
+        self.d = d
+        self.gamma = gamma
+        self.poly = ExampleG(D)
+
+        # Set reproducible pool of randomness
+        self.rand = np.random.RandomState(109332085)
+
+        # Construct moment vector and matrices for uniform distribution over [-1,1]
+        mu_vector = np.array([1 / (i+1) if i % 2 == 0 else 0 for i in range(2*d+1)])
+        mu = np.array([[np.copy(mu_vector) for d in range(D)] for l in range(L)])
+        M = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
+                        for m in range(d+1)]
+                        for i in range(D)]
+                        for l in range(L)])
+
+        R = np.zeros(M.shape)
+        RRt = np.zeros(M.shape)
+
+        pos_slack = np.ones((L, D))
+        abs_slack = np.zeros((L, D, d+1))
+
+        self.free_vars = FreeVariables(L, D, d, mu, R)
+
+        # lambda
+        self.lm = LagrangeMultipliers(L, D, d)
+
+    def test_uniform(self):
+        print('uniform test')
+        print('============')
+        L = self.L
+        D = self.D
+        d = self.d
+
+        coef = self.poly.coefficients
+        powers = self.poly.powers
+
+        gamma = self.gamma
+
+        # change lagrange multipliers to 1 to match his scenario
+        self.lm.factorization = np.ones((L, D, d+1, d+1))
+        self.lm.nonnegativity = np.ones((L, D))
+        self.lm.relaxation = np.zeros((L, D, d+1))
+
+        # translate all 1 Lagrange Multipliers to Will's format
+        # NOTE I think he has redundant relaxation constraints 2d+1 instead
+        # of just the d+1 specified in the paper. Does this cause problems?
+        old_lm = []
+        old_lm.append(np.ones((D, L, d+1, d+1)))
+        old_lm.append(np.ones((D, L)))
+        old_lm.append(np.zeros((D, L, 2*d+1)))
+
+        old_mu = np.transpose(np.copy(self.free_vars.mu), axes=(1, 0, 2))
+        old_R = np.transpose(np.copy(self.free_vars.R), axes=(1, 0, 2, 3))
+        old_x = np.concatenate((old_mu.flatten(), old_R.flatten()))
+
+        new_x = np.concatenate((self.free_vars.mu.flatten(), self.free_vars.R.flatten()))
+
+        aug_lagrangian_partial = partial(Augmented_Lagrangian, d=d, D=D, L=L,
+                                         orders_list=powers,
+                                         coefficients_list=coef,
+                                         Lagrangian_coefficient=old_lm,
+                                         rho=gamma)
+
+        old_gradient = jax.grad(aug_lagrangian_partial)
+
+        # Reshape gradient result to be comparable to new gradient
+        old_value = old_gradient(old_x)
+        old_mu_grad, old_R_grad = restore_matrices(old_value, d, D, L)
+        old_mu_grad = np.transpose(old_mu_grad, axes=(1, 0, 2))
+        old_R_grad = np.transpose(old_R_grad, axes=(1, 0, 2, 3))
+
+        print('old_mu_grad\n{}'.format(old_mu_grad))
+        print('old_R_grad\n{}'.format(old_R_grad))
+
+        old_mu_grad = old_mu_grad.flatten()
+        old_R_grad = old_R_grad.flatten()
+        old_value = np.concatenate((old_mu_grad, old_R_grad))
+
+        new_value = new_gradient(new_x, self.lm, coef, powers, gamma, L, D, d)
+        new_mu_grad = np.copy(new_value[:L*D*(2*d+1)]).reshape((L, D, 2*d + 1))
+        new_R_grad = np.copy(new_value[L*D*(2*d+1):]).reshape((L, D, d+1, d+1))
+
+        print('new_mu_grad\n{}'.format(new_mu_grad))
+        print('new_R_grad\n{}'.format(new_R_grad))
+
+        diff = old_value - new_value
+        diff_mu = np.copy(diff[:L*D*(2*d+1)]).reshape((L, D, 2*d + 1))
+        diff_R = np.copy(diff[L*D*(2*d+1):]).reshape((L, D, d+1, d+1))
+
+        print('diff_mu\n{}'.format(diff_mu))
+        print('diff_R\n{}'.format(diff_R))
+
+        norm = np.linalg.norm(diff, ord=1)
+        self.assertAlmostEqual(norm, 0, places=2)
+
+    def test_zeros(self):
+        print('zeros test')
+        print('==========')
+        L = self.L
+        D = self.D
+        d = self.d
+
+        coef = self.poly.coefficients
+        powers = self.poly.powers
+
+        gamma = self.gamma
+
+        # change lagrange multipliers to 1 to match his scenario
+        self.lm.factorization = np.ones((L, D, d+1, d+1))
+        self.lm.nonnegativity = 2 * np.ones((L, D))
+        self.lm.relaxation = np.ones((L, D, d+1))
+
+        # translate all 1 Lagrange Multipliers to Will's format
+        # NOTE I think he has redundant relaxation constraints 2d+1 instead
+        # of just the d+1 specified in the paper. Does this cause problems?
+        old_lm = []
+        old_lm.append(np.ones((D, L, d+1, d+1)))
+        old_lm.append(2 * np.ones((D, L)))
+        old_lm.append(np.ones((D, L, 2*d+1)))
+
+        old_mu = np.zeros((D, L, 2 * d + 1))
+        old_R = np.zeros((D, L, d+1, d+1))
+        old_x = np.concatenate((old_mu.flatten(), old_R.flatten()))
+
+        new_x = np.zeros_like(old_x)
+
+        aug_lagrangian_partial = partial(Augmented_Lagrangian, d=d, D=D, L=L,
+                                         orders_list=powers,
+                                         coefficients_list=coef,
+                                         Lagrangian_coefficient=old_lm,
+                                         rho=gamma)
+
+        old_gradient = jax.grad(aug_lagrangian_partial)
+
+        # Reshape gradient result to be comparable to new gradient
+        old_value = old_gradient(old_x)
+        old_mu_grad, old_R_grad = restore_matrices(old_value, d, D, L)
+        old_mu_grad = np.transpose(old_mu_grad, axes=(1, 0, 2))
+        old_R_grad = np.transpose(old_R_grad, axes=(1, 0, 2, 3))
+
+        print('old_mu_grad\n{}'.format(old_mu_grad))
+        print('old_R_grad\n{}'.format(old_R_grad))
+
+        old_mu = old_mu.flatten()
+        old_R = old_R.flatten()
+        old_value = np.concatenate((old_mu, old_R))
+
+        new_value = new_gradient(new_x, self.lm, coef, powers, gamma, L, D, d)
+        new_mu_grad = np.copy(new_value[:L*D*(2*d+1)]).reshape((L, D, 2*d + 1))
+        new_R_grad = np.copy(new_value[L*D*(2*d+1):]).reshape((L, D, d+1, d+1))
+
+        print('new_mu_grad\n{}'.format(new_mu_grad))
+        print('new_R_grad\n{}'.format(new_R_grad))
+
+        #print('old[:6] = {}'.format(old_value[:6]))
+        #print('new[:6] = {}'.format(new_value[:6]))
+        #print('old_mu[:6] = {}'.format(old_mu[:6]))
+
+        #first_offset = L * D * (2*d+1)
+        #print('old[LxDx(2d+1):+6] = {}'.format(old_value[first_offset:first_offset+6]))
+        #print('new[LxDx(2d+1):+6] = {}'.format(new_value[first_offset:first_offset+6]))
+        #print('old_mu[first_offset:+6] = {}'.format(old_mu[first_offset:first_offset+6]))
+
+
+        #R_index = L*D*(2*d+1)
+        #print('old[L x D x (2d+1):+6] = {}'.format(old_value[R_index:R_index+6]))
+        #print('new[L x D x (2d+1):+6] = {}'.format(new_value[R_index:R_index+6]))
+        #print('old_R[:6] = {}'.format(old_R[:6]))
+
+        diff = old_value - new_value
+        norm = np.linalg.norm(diff)
+        self.assertAlmostEqual(norm, 0, places=2)
+
+    def test_a(self):
+        L = self.L
+        D = self.D
+        d = self.d
+
+        coef = self.poly.coefficients
+        powers = self.poly.powers
+
+        gamma = self.gamma
+
+        # we will reshape the data according to our format, as it is stored
+        # in Will's (D, L, d) format
+        a = np.load('a.npy')
+        old_a = np.copy(a)
+        new_a = np.copy(a)
+
+        new_mu, new_R = restore_matrices(new_a, d, D, L)
+        self.free_vars.mu = np.transpose(new_mu, axes=(1, 0, 2))
+        self.free_vars.R = np.transpose(new_R, axes=(1, 0, 2, 3))
+
+        # change lagrange multipliers to 1 to match his scenario
+        self.lm.factorization = np.ones((L, D, d+1, d+1))
+        self.lm.nonnegativity = np.ones((L, D))
+        self.lm.relaxation = np.ones((L, D, d+1))
+
+        # translate all 1 Lagrange Multipliers to Will's format
+        # NOTE I think he has redundant relaxation constraints 2d+1 instead
+        # of just the d+1 specified in the paper. Does this cause problems?
+        old_lm = []
+        old_lm.append(np.ones((D, L, d+1, d+1)))
+        old_lm.append(np.ones((D, L)))
+        old_lm.append(np.ones((D, L, 2*d+1)))
+
+        aug_lagrangian_partial = partial(Augmented_Lagrangian, d=d, D=D, L=L,
+                                         orders_list=powers,
+                                         coefficients_list=coef,
+                                         Lagrangian_coefficient=old_lm,
+                                         rho=gamma)
+
+        old_gradient = jax.grad(aug_lagrangian_partial)
+
+        # Reshape gradient result to be comparable to new gradient
+        old_value = old_gradient(old_a)
+        old_mu, old_R = restore_matrices(old_value, d, D, L)
+        old_mu = np.transpose(old_mu, axes=(1, 0, 2))
+        old_R = np.transpose(new_R, axes=(1, 0, 2, 3))
+
+        print('old_mu\n{}'.format(old_mu))
+        print('old_R\n{}'.format(old_R))
+
+        old_mu = old_mu.flatten()
+        old_R = old_R.flatten()
+        old_value = np.concatenate((old_mu, old_R))
+
+        new_value = new_gradient(new_a.flatten(), self.lm, coef, powers, gamma, L, D, d)
+        new_mu = np.copy(new_value[:L*D*(2*d+1)]).reshape((L, D, 2*d + 1))
+        new_R = np.copy(new_value[L*D*(2*d+1):]).reshape((L, D, d+1, d+1))
+
+        print('new_mu\n{}'.format(new_mu))
+        print('new_R\n{}'.format(new_R))
+
+        #print('old[:6] = {}'.format(old_value[:6]))
+        #print('new[:6] = {}'.format(new_value[:6]))
+        #print('old_mu[:6] = {}'.format(old_mu[:6]))
+
+        #first_offset = L * D * (2*d+1)
+        #print('old[LxDx(2d+1):+6] = {}'.format(old_value[first_offset:first_offset+6]))
+        #print('new[LxDx(2d+1):+6] = {}'.format(new_value[first_offset:first_offset+6]))
+        #print('old_mu[first_offset:+6] = {}'.format(old_mu[first_offset:first_offset+6]))
+
+
+        #R_index = L*D*(2*d+1)
+        #print('old[L x D x (2d+1):+6] = {}'.format(old_value[R_index:R_index+6]))
+        #print('new[L x D x (2d+1):+6] = {}'.format(new_value[R_index:R_index+6]))
+        #print('old_R[:6] = {}'.format(old_R[:6]))
+
+        diff = old_value - new_value
+        norm = np.linalg.norm(diff)
+        self.assertAlmostEqual(norm, 0, places=2)
+
+
+class TestAugmentedLagrangian(unittest.TestCase):
+    def setUp(self):
+        L = 6
+        D = 2
+        d = 4
+        gamma = 10
+
+        self.L = L
+        self.D = D
+        self.d = d
+        self.gamma = gamma
+        self.poly = ExampleG(D)
+
+        # Set reproducible pool of randomness
+        self.rand = np.random.RandomState(109332085)
+
+        # Construct moment vector and matrices for uniform distribution over [-1,1]
+        mu_vector = np.array([1 / (i+1) if i % 2 == 0 else 0 for i in range(2*d+1)])
+        mu = np.array([[np.copy(mu_vector) for d in range(D)] for l in range(L)])
+        M = np.array([[[[mu[l,i,n+m] for n in range(d+1)]
+                        for m in range(d+1)]
+                        for i in range(D)]
+                        for l in range(L)])
+
+        R = np.zeros(M.shape)
+        RRt = np.zeros(M.shape)
+
+        pos_slack = np.ones((L, D))
+        abs_slack = np.zeros((L, D, d+1))
+
+        self.free_vars = FreeVariables(L, D, d, mu, R)
+
+        # lambda
+        self.lm = LagrangeMultipliers(L, D, d)
+
+    #def test_value(self):
+    #    coef = self.poly.coefficients
+    #    powers = self.poly.powers
+    #    #free_vars = self.free_vars.flattened()
+    #    new_value = new_augmented_lagrangian(self.x_input, self.lm, coef, powers,
+    #                                         self.gamma, self.L, self.D, self.d)
+    #    #lagrangian_list = [self.lm.factorization, self.lm.nonnegativity, self.lm.relaxation]
+    #    #old_value = Augmented_Lagrangian(self.x_input, self.d, self.D, self.L, powers,
+    #    #                                 coef, lagrangian_list, self.gamma)
+    #    print(new_value)
+    #    #print(old_value)
+
+    def test_a(self):
+        L = self.L
+        D = self.D
+        d = self.d
+
+        coef = self.poly.coefficients
+        powers = self.poly.powers
+
+        data = np.load('a.npy')
+
+        old_mu, old_R = restore_matrices(data, d, D, L)
+        self.free_vars.mu = np.transpose(old_mu, axes=(1, 0, 2))
+        self.free_vars.R = np.transpose(old_R, axes=(1, 0, 2, 3))
+
+        # change lagrange multipliers to 1 to match his scenario
+        self.lm.factorization = np.ones((L, D, d+1, d+1))
+        self.lm.nonnegativity = np.ones((L, D))
+        self.lm.relaxation = np.ones((L, D, d+1))
+
+        # from Will's test run
+        old_value = jnp.array([1407.7411])
+        value = new_augmented_lagrangian(self.free_vars.flattened(), self.lm,
+                                         coef, powers, self.gamma, L, D, d)
+        # must unpack value from singleton array
+        self.assertAlmostEqual(value, old_value, places=3)
+
+    def test_b(self):
+        L = self.L
+        D = self.D
+        d = self.d
+
+        coef = self.poly.coefficients
+        powers = self.poly.powers
+
+        data = np.load('b.npy')
+
+        old_mu, old_R = restore_matrices(data, d, D, L)
+        self.free_vars.mu = np.transpose(old_mu, axes=(1, 0, 2))
+        self.free_vars.R = np.transpose(old_R, axes=(1, 0, 2, 3))
+
+        # change lagrange multipliers to 1 to match his scenario
+        self.lm.factorization = np.ones((L, D, d+1, d+1))
+        self.lm.nonnegativity = np.ones((L, D))
+        self.lm.relaxation = np.ones((L, D, d+1))
+
+        # from Will's test run
+        old_value = jnp.array(1229.2025)
+        value = new_augmented_lagrangian(self.free_vars.flattened(), self.lm,
+                                         coef, powers, self.gamma, L, D, d)
+        # must unpack value from singleton array
+        self.assertAlmostEqual(value, old_value, places=3)
+
+    def test_c(self):
+        L = self.L
+        D = self.D
+        d = self.d
+
+        coef = self.poly.coefficients
+        powers = self.poly.powers
+
+        data = np.load('c.npy')
+
+        old_mu, old_R = restore_matrices(data, d, D, L)
+        self.free_vars.mu = np.transpose(old_mu, axes=(1, 0, 2))
+        self.free_vars.R = np.transpose(old_R, axes=(1, 0, 2, 3))
+
+        # change lagrange multipliers to 1 to match his scenario
+        self.lm.factorization = np.ones((L, D, d+1, d+1))
+        self.lm.nonnegativity = np.ones((L, D))
+        self.lm.relaxation = np.ones((L, D, d+1))
+
+        # from Will's test run
+        old_value = jnp.array(1304.2158)
+        value = new_augmented_lagrangian(self.free_vars.flattened(), self.lm,
+                                         coef, powers, self.gamma, L, D, d)
+        # must unpack value from singleton array
+        self.assertAlmostEqual(value, old_value, places=3)
+
+
 class TestSolver(unittest.TestCase):
     def setUp(self):
         L = 6
@@ -775,6 +1165,7 @@ class TestSolver(unittest.TestCase):
 
         # lambda
         self.lm = LagrangeMultipliers(L, D, d)
+
 
     def test_example_2(self):
         poly = ExampleG(self.D)

@@ -175,8 +175,8 @@ class FreeVariables:
         #         for m in range(d+1)]
         #         for i in range(D)]
         #         for l in range(L)])
-        for n in range(d+1):
-            for m in range(d+1):
+        for n in range(self.d+1):
+            for m in range(self.d+1):
                 self.M_d[:,:,n,m] = self.mu[:,:,n+m]
 
     def optimal_location(self):
@@ -465,7 +465,7 @@ def grad_objective(mu, coef, powers, L, D, d):
 
     return result
 
-def new_augmented_lagrangian(free_vars, M_d, lm, coef, powers, gamma, L, D, d):
+def new_augmented_lagrangian(free_vars, lm, coef, powers, gamma, L, D, d):
     """
     free_vars - passed as a 1-D array for scipy's minimize function
     M_d - passed separately, is updated according to free_vars
@@ -476,6 +476,7 @@ def new_augmented_lagrangian(free_vars, M_d, lm, coef, powers, gamma, L, D, d):
                     shape=(L, D, 2*d + 1),
                     writeable=False)
     R = np.lib.stride_tricks.as_strided(free_vars[mu_size:], shape=(L, D, d+1, d+1), writeable=False)
+    M_d = np.zeros((L, D, d+1, d+1))
     for n in range(d+1):
         for m in range(d+1):
             M_d[:,:,n,m] = mu[:,:,n+m]
@@ -485,7 +486,7 @@ def new_augmented_lagrangian(free_vars, M_d, lm, coef, powers, gamma, L, D, d):
                                   lm.relaxation, mu, M_d, R, L, D, d)
             + new_penalty(mu, M_d, R, gamma, L, D, d))
 
-def new_gradient(free_vars, M_d, lm, coef, powers, gamma, L, D, d):
+def new_gradient(free_vars, lm, coef, powers, gamma, L, D, d):
     """
     Gradient of the new augmented lagrangian with respect to the free variables
     mu, R contained in free_vars (reflected in M_d too)
@@ -495,8 +496,10 @@ def new_gradient(free_vars, M_d, lm, coef, powers, gamma, L, D, d):
     mu = np.lib.stride_tricks.as_strided(free_vars[:mu_size],
                     shape=(L, D, 2*d + 1),
                     writeable=False)
-    R = np.lib.stride_tricks.as_strided(free_vars[mu_size:], shape=(L, D, d+1, d+1), writeable=False)
-
+    R = np.lib.stride_tricks.as_strided(free_vars[mu_size:],
+                                        shape=(L, D, d+1, d+1),
+                                        writeable=False)
+    M_d = np.zeros((L, D, d+1, d+1))
     for n in range(d+1):
         for m in range(d+1):
             M_d[:,:,n,m] = mu[:,:,n+m]
@@ -514,7 +517,7 @@ def new_gradient(free_vars, M_d, lm, coef, powers, gamma, L, D, d):
     return np.concatenate((mu_grad.flatten(), R_grad.flatten()), axis=0)
 
 
-def solver(poly, gamma, L, D, d, max_iter=20):
+def solver(poly, gamma, L, D, d, max_iter=10):
     """
     D is the number of dimensions
     d is the highest order in polynomial
@@ -531,7 +534,7 @@ def solver(poly, gamma, L, D, d, max_iter=20):
 
     # TODO change how this is managed, may be best to use exclusively arrays
     # and not bother with this object
-    free_vars_obj = FreeVariables(L, D, d)
+    free_vars_obj = FreeVariables(L, D, d, seed=1243124242)
     free_vars = free_vars_obj.flattened()
     M_d = free_vars_obj.M_d
 
@@ -546,11 +549,11 @@ def solver(poly, gamma, L, D, d, max_iter=20):
     for iteration in range(max_iter):
         #print("-"*40)
         # NOT a partial derivative
-        partial_func = partial(new_augmented_lagrangian, M_d=M_d, lm=lm,
+        partial_func = partial(new_augmented_lagrangian, lm=lm,
                                coef=coef, powers=powers, gamma=gamma, L=L, D=D,
                                d=d)
         # NOT a partial derivative
-        partial_grad = partial(new_gradient, M_d=M_d, lm=lm,
+        partial_grad = partial(new_gradient, lm=lm,
                                coef=coef, powers=powers, gamma=gamma, L=L, D=D,
                                d=d)
 
@@ -571,17 +574,24 @@ def solver(poly, gamma, L, D, d, max_iter=20):
 
         # update free variables and our object tracking them
         old_free_vars = np.copy(free_vars)
-        free_vars = result.x
+        free_vars = np.copy(result.x)
+        mu_size = L * D * (2 * d + 1)
+        free_vars_obj.mu = np.reshape(np.copy(free_vars[:mu_size]), (L, D, 2*d+1))
+        free_vars_obj.R = np.reshape(np.copy(free_vars[mu_size:]), (L, D, d+1, d+1))
+        free_vars_obj.update_M_d()
+
         print('|free_vars - old_free_vars| = {}'.format(
             np.linalg.norm(free_vars - old_free_vars)))
-        mu_size = L * D * (2 * d + 1)
-        free_vars_obj.mu = np.lib.stride_tricks.as_strided(free_vars[:mu_size],
-                        shape=(L, D, 2*d + 1),
-                        writeable=False)
-        free_vars_obj.R = np.lib.stride_tricks.as_strided(free_vars[mu_size:], shape=(L, D, d+1, d+1), writeable=False)
-        for n in range(d+1):
-            for m in range(d+1):
-                free_vars_obj.M_d[:,:,n,m] = free_vars_obj.mu[:,:,n+m]
+        print(new_gradient(free_vars, lm, coef, powers, gamma, L, D, d)[:10])
+        print(np.linalg.norm(new_gradient(free_vars, lm, coef, powers, gamma, L, D, d))
+              / (L * D * (d*d + 4 * d + 2)))
+        #print('mu[:,0,0] =')
+        #print(free_vars_obj.mu[:,0,0])
+        #print('R[0,0,:3,:3] =')
+        #print(free_vars_obj.R[0,0,:3,:3])
+        #for n in range(d+1):
+        #    for m in range(d+1):
+        #        free_vars_obj.M_d[:,:,n,m] = free_vars_obj.mu[:,:,n+m]
 
 
         # Update lm or gamma according to BM paper (note our gamma is their sigma)
@@ -615,9 +625,11 @@ def restore_matrices(s,d,D,L):
     """
 
     # Define matrix dimensions
-    md_shape = (d+1, d+1)
+    md_shape = (2*d+1,)
+    Rd_shape = (d+1,d+1)
+
     # Initialize empty lists to store the restored matrices
-    x_M_D_L_list = [[] for _ in range(D)]
+    x_mu_D_L_list = [[] for _ in range(D)]
     x_R_L_list = [[] for _ in range(D)]
     
     # Set the initial index
@@ -625,18 +637,19 @@ def restore_matrices(s,d,D,L):
 
     for i in range(D):
         for _ in range(L):
-            # Restore M_d(d) matrices
-            x_M_D_L_list[i].append(s[start_index:start_index + (d+1)**2].reshape(md_shape))
-            start_index += (d+1)**2
+            # Restore list of moments of measure
+            x_mu_D_L_list[i].append(s[start_index:start_index + 2*d+1].reshape(md_shape))
+            start_index += 2*d+1
     
 
     for i in range(D):
         for _ in range(L):
             # Restore R_i(d) matrices
-            x_R_L_list[i].append(s[start_index:start_index + (d+1)**2].reshape(md_shape))
+            x_R_L_list[i].append(s[start_index:start_index + (d+1)**2].reshape(Rd_shape))
             start_index += (d+1)**2
-    
-    return x_M_D_L_list,x_R_L_list
+    x_mu_D_L_list = jnp.array(x_mu_D_L_list)
+    x_R_L_list = jnp.array(x_R_L_list)
+    return x_mu_D_L_list,x_R_L_list
 
 def restore(s,d,D,L):
     """
@@ -650,9 +663,18 @@ def restore(s,d,D,L):
     """
     return s.reshape((2, D, L, d+1, d+1))
 
+def generate_M_d(x_mu_D_L_list,d,D,L):
+    x_M_D_L_list = [[] for _ in range(D)]
+    for l in range(L):
+        for q in range(D):
+            indices = jnp.arange(d + 1)
+            i, j = jnp.meshgrid(indices, indices, indexing='ij')
+            M_D_L_matrix = x_mu_D_L_list[q][l][i + j]
+            x_M_D_L_list[q].append(M_D_L_matrix)
+    return jnp.array(x_M_D_L_list)
 
 # Def the function of B.3
-def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,gamma):
+def Augmented_Lagrangian(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):
     """
     x is the flattend x
     D is the number of variables in polynomial
@@ -660,29 +682,92 @@ def Augmented_Lagrangian(x,d,D,L,orders_list,coefficients_list,Lagrangian_coeffi
     orders_list is the list of different terms(e.g. x1^2*x2^2) in polynomials
     coefficients_list is the list of coefficients of the above terms
     Lagrangian_coefficient is Lagrangian coefficient
-    gamma is penalty parameter
+    rho is the penalty term 
 
     """
     #Before we start, we need to reshape the x input back to the original format, which is the matrix form
 
-    # extract moment matrices M_d^l and their respective factorizations R where
-    # M_d^l = R R^T
-    matrices = restore(x,d,D,L)
-    x_M_D_L_list = matrices[0]
-    x_R_L_list = matrices[1]
+    x_mu_D_L_list,x_R_L_list = restore_matrices(s=x_input,d=d,D=D,L=L)
     
     sum_result = 0
 
     #First term
-    sum_result += objective(D,L,x_M_D_L_list,orders_list,coefficients_list)
+    sum_result += term_1(D,L,x_mu_D_L_list,orders_list,coefficients_list)
 
-    #Second term
-    sum_result += multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient)
+    #Here we need to generate the real M_d matrix from our list of moments of measure
+
+    x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
+
+    # #Second term
+    sum_result += term_2(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient)
     
-    #Third term
-    sum_result += penalty(D,L,d,x_M_D_L_list,x_R_L_list,gamma)
+    # #Third term
+    sum_result += rho/2*term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list)
     return sum_result
 
+def term_1(D,L,x_mu_D_L_list,orders_list,coefficients_list):
+    sum = 0
+    for i in range(len(orders_list)):
+        moments_product_sum = 0
+        for l in range(L):
+            moments_prodect = 1
+            for j in range(D):
+                moments_prodect *= x_mu_D_L_list[j][l][orders_list[i][j]]
+            moments_product_sum += moments_prodect
+        sum +=coefficients_list[i]*moments_product_sum
+    return sum
+
+#Lagrangian term
+def term_2(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient):
+    
+    sum = 0
+    # Md(mu_0^(l)) - R_0^l R_0^l.T = 0
+    for i in range(D):
+        for l in range(L):
+            sum += jnp.sum(Lagrangian_coefficient[0][i][l]*(x_M_D_L_list[i][l]-jnp.dot(x_R_L_list[i][l],x_R_L_list[i][l].T)))
+    
+
+    # mu_(1,0)^l>=0
+    for l in range(L):
+        sum += Lagrangian_coefficient[1][0][l]*jnp.maximum(-x_M_D_L_list[0][l][0,0],0)
+    
+    # mu_(i,0)^l - 1 = 0
+    for i in range(D-1):
+        for l in range(L):
+            sum += Lagrangian_coefficient[1][i+1][l]*(x_M_D_L_list[i+1][l][0,0]-1)
+    
+    #8 B.2.1.
+    for i in range(D):
+        for l in range(L):
+            sum+= jnp.sum(Lagrangian_coefficient[2][i][l]*(jnp.maximum(0,-x_mu_D_L_list[i][l]-1)+jnp.maximum(0,x_mu_D_L_list[i][l]-1)))
+    
+    return sum
+
+#Penanlty term
+def term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list):
+    sum = 0 
+    # Md(mu_0^(l)) - R_0^l R_0^l.T = 0
+    for i in range(D):
+        for l in range(L):
+            sum += jnp.sum(jnp.square((x_M_D_L_list[i][l]-jnp.dot(x_R_L_list[i][l],x_R_L_list[i][l].T))))
+       
+    # mu_(1,0)^l>=0 
+    # here we define the penalty term as max(0, -g)**2 since we need to let it >=0 
+    for l in range(L):
+        sum += max(0,-x_M_D_L_list[0][l][0,0])**2
+    
+    # mu_(i,0)^l - 1 = 0
+    for i in range(D-1):
+        for l in range(L):
+            sum += (x_M_D_L_list[i+1][l][0,0]-1)**2
+
+       
+    # B.2.1.
+    for i in range(D):
+        for l in range(L):
+                sum+= jnp.sum(jnp.square(jnp.maximum(0,-x_mu_D_L_list[i][l]-1)+jnp.maximum(0,x_mu_D_L_list[i][l]-1)))
+    
+    return sum
 #This is the sum of the polynomials
 def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
     sum = 0
@@ -702,7 +787,7 @@ def multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
         for l in range(L):
-            sum += jaxnp.sum(x_M_D_L_list[i][l]-jaxnp.dot(x_R_L_list[i][l],x_R_L_list[i][l].T))
+            sum += jnp.sum(x_M_D_L_list[i][l]-jnp.dot(x_R_L_list[i][l],x_R_L_list[i][l].T))
     
 
     # 5. mu_(1,0)^l>=0
@@ -725,7 +810,7 @@ def multipliers(D,L,d,x_M_D_L_list,x_R_L_list,Lagrangian_coefficient):
     #8 B.2.1.
     for i in range(D):
         for l in range(L):
-            sum+= jaxnp.sum(jaxnp.maximum(0,-x_M_D_L_list[i][l]-1)+jaxnp.maximum(0,x_M_D_L_list[i][l]-1))
+            sum+= jnp.sum(jnp.maximum(0,-x_M_D_L_list[i][l]-1)+jnp.maximum(0,x_M_D_L_list[i][l]-1))
     
     return Lagrangian_coefficient*sum
 
@@ -735,7 +820,7 @@ def penalty(D,L,d,x_M_D_L_list,x_R_L_list,gamma):
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
         for l in range(L):
-            sum += jaxnp.sum(jaxnp.square((x_M_D_L_list[i][l]-jaxnp.dot(x_R_L_list[i][l],x_R_L_list[i][l].T))))
+            sum += jnp.sum(jnp.square((x_M_D_L_list[i][l]-jnp.dot(x_R_L_list[i][l],x_R_L_list[i][l].T))))
        
     # 5. mu_(1,0)^l>=0 here we define the penalty term as max(0, -g)**2 since we need to let it >=0 
     # P.S Here we lack a good enough method to calculate the >=0 equation
@@ -759,7 +844,7 @@ def penalty(D,L,d,x_M_D_L_list,x_R_L_list,gamma):
     #8 B.2.1.
     for i in range(D):
         for l in range(L):
-                sum+= jaxnp.sum(jaxnp.square(jaxnp.maximum(0,-x_M_D_L_list[i][l]-1)+jaxnp.maximum(0,x_M_D_L_list[i][l]-1)))
+                sum+= jnp.sum(jnp.square(jnp.maximum(0,-x_M_D_L_list[i][l]-1)+jnp.maximum(0,x_M_D_L_list[i][l]-1)))
     
     return gamma/2*sum
 
@@ -812,7 +897,7 @@ def update_Lagrangian_coefficients(d,D,L,x_input,Lagrangian_coefficient,gamma):
     return Lagrangian_coefficient
 
 def auto_gradient(x,y,gamma):
-    return gamma/2*jaxnp.sum(jaxnp.square((x-jaxnp.dot(y,y.T))))
+    return gamma/2*jnp.sum(jnp.square((x-jnp.dot(y,y.T))))
 
 
 def jac(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,gamma):
