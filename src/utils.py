@@ -383,8 +383,15 @@ def grad_mu(l_factorization, l_nonnegativity, l_relaxation,
     # gradient is sign(mu) * Lagrange multiplier if |mu| > 1, 0 otherwise
     A = np.maximum(np.abs(mu[:,:,:d+1]) -
                    np.ones((L, D, d+1)), 0)
+    absolute = np.abs(mu[:,:,:d+1])
     signed_l_relaxation = np.sign(mu[:,:,:d+1]) * l_relaxation
-    result[:,:,:d+1] += np.where(A > 0, signed_l_relaxation, A)
+
+    # imitate auto-gradient by effectively averaging the gradients at the nondifferentiable
+    # point at 1 (0 for |mu| < 1, signed lambda for |mu| > 1)
+    avg_result = 0.5 * np.where(absolute >= 1, signed_l_relaxation, np.zeros_like(absolute))
+    avg_result += 0.5 * np.where(absolute > 1, signed_l_relaxation, np.zeros_like(absolute))
+    #result[:,:,:d+1] += np.where(absolute >= 1, signed_l_relaxation, np.zeros_like(absolute))
+    result[:,:,:d+1] += avg_result
 
     return result
 
@@ -493,12 +500,16 @@ def new_gradient(free_vars, lm, coef, powers, gamma, L, D, d):
     """
     # Reconstruct mu and R from flattened version without having to reshape them
     mu_size = L * D * (2 * d + 1)
-    mu = np.lib.stride_tricks.as_strided(free_vars[:mu_size],
-                    shape=(L, D, 2*d + 1),
-                    writeable=False)
-    R = np.lib.stride_tricks.as_strided(free_vars[mu_size:],
-                                        shape=(L, D, d+1, d+1),
-                                        writeable=False)
+    #mu = np.lib.stride_tricks.as_strided(free_vars[:mu_size],
+    #                shape=(L, D, 2*d + 1),
+    #                writeable=False)
+    mu = np.copy(free_vars[:mu_size]).reshape((L, D, 2*d + 1))
+
+    #R = np.lib.stride_tricks.as_strided(free_vars[mu_size:],
+    #                                    shape=(L, D, d+1, d+1),
+    #                                    writeable=False)
+    R = np.copy(free_vars[mu_size:]).reshape((L, D, d+1, d+1))
+
     M_d = np.zeros((L, D, d+1, d+1))
     for n in range(d+1):
         for m in range(d+1):
@@ -694,12 +705,8 @@ def Augmented_Lagrangian(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_
     #First term
     sum_result += term_1(D,L,x_mu_D_L_list,orders_list,coefficients_list)
 
-    #Here we need to generate the real M_d matrix from our list of moments of measure
-
-    x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
-
     # #Second term
-    sum_result += term_2(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient)
+    sum_result += term_2(D,L,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient)
     
     # #Third term
     sum_result += rho/2*term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list)
@@ -718,8 +725,13 @@ def term_1(D,L,x_mu_D_L_list,orders_list,coefficients_list):
     return sum
 
 #Lagrangian term
-def term_2(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient):
-    
+def term_2(D,L,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient):
+    # d = floor((2d+1) / 2)
+    d = int(len(x_mu_D_L_list[0][0]) / 2)
+
+    #Here we need to generate the real M_d matrix from our list of moments of measure
+    x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
+
     sum = 0
     # Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
@@ -729,7 +741,7 @@ def term_2(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient):
 
     # mu_(1,0)^l>=0
     for l in range(L):
-        sum += Lagrangian_coefficient[1][0][l]*jnp.maximum(-x_M_D_L_list[0][l][0,0],0)
+        sum += Lagrangian_coefficient[1][0][l]*jnp.minimum(x_M_D_L_list[0][l][0,0],0)
     
     # mu_(i,0)^l - 1 = 0
     for i in range(D-1):
@@ -739,7 +751,13 @@ def term_2(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient):
     #8 B.2.1.
     for i in range(D):
         for l in range(L):
-            sum+= jnp.sum(Lagrangian_coefficient[2][i][l]*(jnp.maximum(0,-x_mu_D_L_list[i][l]-1)+jnp.maximum(0,x_mu_D_L_list[i][l]-1)))
+            #sum+= jnp.sum(Lagrangian_coefficient[2][i][l]*(jnp.maximum(0,-x_mu_D_L_list[i][l]-1)+jnp.maximum(0,x_mu_D_L_list[i][l]-1)))
+            A = jnp.maximum(jnp.abs(x_mu_D_L_list[i][l][:d+1]) - jnp.ones(d+1), 0)
+            sum += A @ Lagrangian_coefficient[2][i][l]
+
+    #A = jnp.maximum(jnp.abs(mu[:,:,:d+1]) -
+    #               jnp.ones((L, D, d+1)), 0)
+    #total += jnp.einsum('ijk,ijk->', A, l_relaxation)
     
     return sum
 
