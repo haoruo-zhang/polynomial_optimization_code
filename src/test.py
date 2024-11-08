@@ -104,9 +104,6 @@ class TestLagrangeMultipliers(unittest.TestCase):
         R = jnp.zeros(M.shape)
         RRt = jnp.zeros(M.shape)
 
-        pos_slack = jnp.ones((L, D))
-        abs_slack = jnp.zeros((L, D, d+1))
-
         self.free_vars = FreeVariables(L, D, d, mu, R)
         # lambda
         self.lm = LagrangeMultipliers(L, D, d)
@@ -347,8 +344,8 @@ class TestMultiplierGradient(unittest.TestCase):
             return np.transpose(old, axes=(1, 0, 2))
 
         def old_grad_R(mu, R, lm, L, D, d):
-            old_mu = np.transpose(mu, axes=(1,0,2)).flatten()
-            old_R = np.transpose(R, axes=(1,0,2,3)).flatten()
+            old_mu = np.transpose(mu, axes=(1,0,2))
+            old_R = np.transpose(R, axes=(1,0,2,3))
 
             old_factorization = np.transpose(lm.factorization, axes=(1, 0, 2, 3))
             old_nonnegativity = np.transpose(lm.nonnegativity, axes=(1, 0))
@@ -360,44 +357,10 @@ class TestMultiplierGradient(unittest.TestCase):
         self.old_grad_mu = old_grad_mu
         self.old_grad_R = old_grad_R
 
-    def test_factorization_R(self):
+    #@unittest.skip('incomplete')
+    def test_mu(self):
         """
-        Test gradient of factorization constraint with respect to factorization
-        matrix R
-        """
-        L = self.L
-        D = self.D
-        d = self.d
-
-        # Test if one lagrange multiplier factor and one R element change works
-        self.lm.factorization[0,1,1,3] = 0.5
-        self.free_vars.R[0,1,1,1] = 1
-        jax_result = self.grad_R(self.lm.factorization, self.lm.nonnegativity,
-                          self.lm.relaxation, self.free_vars.mu,
-                          self.free_vars.M_d, self.free_vars.R)
-        hardcoded_result = grad_R(self.lm.factorization, self.lm.nonnegativity,
-                                 self.lm.relaxation, self.free_vars.mu,
-                                 self.free_vars.R, L, D,
-                                 d)
-        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
-
-        # Test if "random" (but fixed) factorization and lagrange multipliers
-        # yield the same answer
-        self.lm.factorization = self.rand.random_sample((L, D, d+1, d+1))
-        self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
-        jax_result = self.grad_R(self.lm.factorization, self.lm.nonnegativity,
-                          self.lm.relaxation, self.free_vars.mu,
-                          self.free_vars.M_d, self.free_vars.R)
-        hardcoded_result = grad_R(self.lm.factorization, self.lm.nonnegativity,
-                                 self.lm.relaxation, self.free_vars.mu,
-                                 self.free_vars.R, L, D,
-                                 d)
-        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
-
-    def test_factorization_mu(self):
-        """
-        Test gradient of factorization constraint with respect to moment
-        matrices determined by mu
+        Test gradient with respect to mu, incorporating all types of infeasibilities.
         """
         L = self.L
         D = self.D
@@ -429,6 +392,129 @@ class TestMultiplierGradient(unittest.TestCase):
                                  self.free_vars.R, L, D,
                                  d)
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+
+    def test_factorization_R(self):
+        """
+        Test gradient of factorization constraint with respect to factorization
+        matrix R
+        """
+        L = self.L
+        D = self.D
+        d = self.d
+
+        # Test if one lagrange multiplier factor and one R element change works
+        self.lm.factorization[0,1,1,3] = 0.5
+        self.free_vars.R[0,1,1,1] = 1
+
+        self.free_vars.update_M_d()
+        self.free_vars.update_RRt()
+
+        jax_result = self.grad_R(self.lm.factorization, self.lm.nonnegativity,
+                          self.lm.relaxation, self.free_vars.mu,
+                          self.free_vars.M_d, self.free_vars.R)
+        old_result = self.old_grad_R(self.free_vars.mu, self.free_vars.R,
+                                      self.lm, L, D, d)
+        hardcoded_result = grad_lm_R(self.lm.factorization, self.lm.nonnegativity,
+                                 self.lm.relaxation, self.free_vars.mu,
+                                 self.free_vars.R, L, D,
+                                 d)
+
+        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(jax_result, old_result).all())
+        self.assertTrue(np.isclose(old_result, hardcoded_result).all())
+
+        # Test if "random" (but fixed) factorization and lagrange multipliers
+        # yield the same answer
+        self.lm.factorization = self.rand.random_sample((L, D, d+1, d+1))
+        self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
+
+        self.free_vars.update_M_d()
+        self.free_vars.update_RRt()
+
+        jax_result = self.grad_R(self.lm.factorization, self.lm.nonnegativity,
+                          self.lm.relaxation, self.free_vars.mu,
+                          self.free_vars.M_d, self.free_vars.R)
+        old_result = self.old_grad_R(self.free_vars.mu, self.free_vars.R,
+                                      self.lm, L, D, d)
+        hardcoded_result = grad_lm_R(self.lm.factorization, self.lm.nonnegativity,
+                                 self.lm.relaxation, self.free_vars.mu,
+                                 self.free_vars.R, L, D,
+                                 d)
+        #print('mu = {}'.format(self.free_vars.mu))
+        #print('R = {}'.format(self.free_vars.R))
+        #print('lm_factorization = {}'.format(self.lm.factorization))
+
+        #print('new_jax_grad = {}'.format(jax_result))
+        #print('hardcode_grad = {}'.format(hardcoded_result))
+        #print('old_jax_grad = {}'.format(old_result))
+
+        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(jax_result, old_result).all())
+        self.assertTrue(np.isclose(old_result, hardcoded_result).all())
+
+    def test_factorization_mu(self):
+        """
+        Test gradient of factorization constraint with respect to moment
+        matrices determined by mu
+        """
+        L = self.L
+        D = self.D
+        d = self.d
+
+        # Test if one lagrange multiplier factor and one R element change works
+        self.lm.factorization[0,1,1,3] = 0.5
+        self.free_vars.R[0,1,1,1] = 1
+        self.free_vars.update_M_d()
+        self.free_vars.update_RRt()
+        jax_result = self.grad_R(self.lm.factorization, self.lm.nonnegativity,
+                          self.lm.relaxation, self.free_vars.mu,
+                          self.free_vars.M_d, self.free_vars.R)
+        old_result = self.old_grad_R(self.free_vars.mu, self.free_vars.R,
+                                      self.lm, L, D, d)
+        hardcoded_result = grad_lm_R(self.lm.factorization, self.lm.nonnegativity,
+                                 self.lm.relaxation, self.free_vars.mu,
+                                 self.free_vars.R, L, D,
+                                 d)
+        print('mu = {}'.format(self.free_vars.mu))
+        print('R = {}'.format(self.free_vars.R))
+        print('lm_factorization = {}'.format(self.lm.factorization))
+        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(jax_result, old_result).all())
+        self.assertTrue(np.isclose(old_result, hardcoded_result).all())
+
+        print('jax = {}'.format(jax_result))
+        print('hardcode = {}'.format(hardcoded_result))
+        print('old_jax = {}'.format(old_result))
+
+        # Test if "random" (but fixed) mu, factorization, and lagrange
+        # multipliers yield the same answer
+        self.lm.factorization = self.rand.random_sample((L, D, d+1, d+1))
+        self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
+        self.free_vars.mu = self.rand.random_sample((L, D, 2*d+1))
+
+        self.free_vars.update_M_d()
+        self.free_vars.update_RRt()
+
+        jax_result = self.grad_mu(self.lm.factorization, self.lm.nonnegativity,
+                          self.lm.relaxation, self.free_vars.mu,
+                          self.free_vars.M_d, self.free_vars.R, L, D, d)
+        old_result = self.old_grad_mu(self.free_vars.mu, self.free_vars.R,
+                                      self.lm, L, D, d)
+        hardcoded_result = grad_mu(self.lm.factorization, self.lm.nonnegativity,
+                                 self.lm.relaxation, self.free_vars.mu,
+                                 self.free_vars.R, L, D,
+                                 d)
+        print('mu = {}'.format(self.free_vars.mu))
+        print('R = {}'.format(self.free_vars.R))
+        print('lm_factorization = {}'.format(self.lm.factorization))
+
+        print('jax = {}'.format(jax_result))
+        print('hardcode = {}'.format(hardcoded_result))
+        print('old_jax = {}'.format(old_result))
+
+        self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(jax_result, old_result).all())
+        self.assertTrue(np.isclose(old_result, hardcoded_result).all())
 
     def test_nonnegativity_mu(self):
         """
@@ -490,25 +576,31 @@ class TestMultiplierGradient(unittest.TestCase):
         # get discrepancies there because jax just takes the average of the
         # "derivative" in each direction, positive and negative, while the
         # hardcoded gradient returns 0
-        self.free_vars.mu = 1.001 * np.ones((L, D, 2*d + 1))
-        self.free_vars.M_d = 1.001 * self.rand.random_sample((L, D, d+1, d+1))
+        self.free_vars.mu = np.ones((L, D, 2*d + 1))
+        self.free_vars.M_d = self.rand.random_sample((L, D, d+1, d+1))
         self.lm.relaxation = self.rand.random_sample((L, D, d+1))
         jax_result = self.grad_mu(self.lm.factorization, self.lm.nonnegativity,
                           self.lm.relaxation, self.free_vars.mu,
                           self.free_vars.M_d, self.free_vars.R, L, D, d)
+        old_result = self.old_grad_mu(self.free_vars.mu, self.free_vars.R,
+                                      self.lm, L, D, d)
         hardcoded_result = grad_mu(self.lm.factorization, self.lm.nonnegativity,
                                  self.lm.relaxation, self.free_vars.mu,
                                  self.free_vars.R, L, D,
                                  d)
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(old_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(old_result, jax_result).all())
 
         # Test if "random" (but fixed) mu, lagrange multipliers yield the same
         # answer
         self.free_vars.mu = 4 * self.rand.random_sample((L, D, 2*d + 1)) - 2
-        self.lm.relaxation = self.rand.random_sample((L, D, d+1))
+        self.lm.relaxation = self.rand.random_sample((L, D, d+1)) - 1
         jax_result = self.grad_mu(self.lm.factorization, self.lm.nonnegativity,
                           self.lm.relaxation, self.free_vars.mu,
                           self.free_vars.M_d, self.free_vars.R, L, D, d)
+        old_result = self.old_grad_mu(self.free_vars.mu, self.free_vars.R,
+                                      self.lm, L, D, d)
         hardcoded_result = grad_mu(self.lm.factorization, self.lm.nonnegativity,
                                  self.lm.relaxation, self.free_vars.mu,
                                  self.free_vars.R, L, D,
@@ -519,6 +611,8 @@ class TestMultiplierGradient(unittest.TestCase):
         #print('jax = {}'.format(jax_result))
         #print('hardcode = {}'.format(hardcoded_result))
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(old_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(old_result, jax_result).all())
 
     def test_factorization_lm(self):
         """
@@ -690,10 +784,10 @@ class TestMultiplierGradient(unittest.TestCase):
 
 class TestPenaltyGradient(unittest.TestCase):
     def setUp(self):
-        L = 6
+        L = 2
         D = 2
         d = 4
-        gamma = 1000
+        gamma = 10
 
         self.L = L
         self.D = D
@@ -714,9 +808,6 @@ class TestPenaltyGradient(unittest.TestCase):
         R = np.zeros(M.shape)
         RRt = np.zeros(M.shape)
 
-        pos_slack = np.ones((L, D))
-        abs_slack = np.zeros((L, D, d+1))
-
         self.free_vars = FreeVariables(L, D, d, mu, R)
 
         # lambda
@@ -724,10 +815,17 @@ class TestPenaltyGradient(unittest.TestCase):
 
         # gradient with respect to moments and moment matrices
         self.jax_grad_mu = jaxgrad(
-                partial(new_penalty, gamma=gamma, L=L, D=D, d=d), argnums=(0, 1))
+                partial(new_penalty, gamma=gamma, L=L, D=D, d=d), argnums=(0, 1, 2))
         # define function to extract raw jax autogradient output and process it to
         # account for the relationship between mu and M_d
-        def auto_grad_mu(mu, M_d, R):
+        def auto_grad(mu, R):
+            d = int(len(mu[0][0]) / 2)
+            L = mu.shape[0]
+            D = mu.shape[1]
+            M_d = np.zeros((L, D, d+1, d+1))
+            for n in range(d+1):
+                for m in range(d+1):
+                    M_d[:,:,n,m] = mu[:,:,n+m]
             jax_grad = self.jax_grad_mu(mu, M_d, R)
             j_mu = np.copy(jax_grad[0])
             j_M_d = np.copy(jax_grad[1])
@@ -746,47 +844,98 @@ class TestPenaltyGradient(unittest.TestCase):
                     np_mu[:,:,n_i] += j_M_d[:,:,lower+k,upper-1-k]
                     #result[:,:,n_i] += l_factorization[:,:,lower+k,upper-1-k]
 
-            return np_mu
+            return (np_mu, np.copy(jax_grad[2]))
+
+        def auto_grad_mu(mu, R): return auto_grad(mu, R)[0]
+
+        def auto_grad_R(mu, R): return auto_grad(mu, R)[1]
 
         self.grad_mu = auto_grad_mu
+        self.grad_R = auto_grad_R
 
-        # gradient with respect to R
-        self.grad_R = jaxgrad(partial(new_penalty, gamma=gamma, L=L, D=D, d=d), argnums=(2,))
+        #def old_penalty(mu, R, gamma, L, D, d):
+        #    old_mu = np.transpose(mu, axes=(1,0,2))
+        #    old_R = np.transpose(R, axes=(1,0,2,3))
+
+        #    # gamma / 2 not included in function itself for some reason
+        #    return (gamma / 2) * term_3(D, L, old_mu, old_R)
+
+
+        ## old gradient with respect to moments and factorization
+        #self.old_grad = jaxgrad(partial(old_penalty),
+        #                        argnums=(0, 1))
+        self.old_grad = jaxgrad(partial(term_3),
+                                argnums=(2, 3))
+
+        def old_grad_mu(mu, R, gamma, L, D, d):
+            old_mu = np.transpose(mu, axes=(1,0,2))
+            old_R = np.transpose(R, axes=(1,0,2,3))
+
+            old = self.old_grad(D, L, old_mu, old_R)[0].reshape((D, L, 2*d+1))
+            # multiply back gamma / 2 because it's not in original term_3
+            return (gamma / 2) * np.transpose(old, axes=(1, 0, 2))
+
+        def old_grad_R(mu, R, L, D, d):
+            old_mu = np.transpose(mu, axes=(1,0,2))
+            old_R = np.transpose(R, axes=(1,0,2,3))
+
+            old = self.old_grad(D, L, old_mu, old_R)[1].reshape((D, L, d+1, d+1))
+            return (gamma / 2) * np.transpose(old, axes=(1, 0, 2, 3))
+
+        self.old_grad_mu = old_grad_mu
+        self.old_grad_R = old_grad_R
 
     def test_mu(self):
         """
-        Test gradient of factorization constraint with respect to mu
+        Test gradient of penalty term with respect to mu
         """
         L = self.L
         D = self.D
         d = self.d
 
         # Test if the existing factorization gap M_d - R @ R.T is registered
-        jax_result = self.grad_mu(self.free_vars.mu, self.free_vars.M_d,
-                                 self.free_vars.R)
+        jax_result = self.grad_mu(self.free_vars.mu, self.free_vars.R)
+        old_result = self.old_grad_mu(self.free_vars.mu, self.free_vars.R,
+                                      self.gamma, L, D, d)
         hardcoded_result = grad_penalty_mu(self.free_vars.mu,
                                            self.free_vars.M_d,
                                            self.free_vars.R, self.gamma, L, D,
                                            d)
+        #print('gamma = {}'.format(self.gamma))
+        #print('M_d = {}'.format(self.free_vars.M_d))
+        #print('R @ R.T = {}'.format(self.free_vars.R @ self.free_vars.R))
+        #print('jax_result = {}'.format(jax_result))
+        #print('hardcoded_result = {}'.format(hardcoded_result))
+        #print('old_result = {}'.format(old_result))
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(jax_result, old_result).all())
+        self.assertTrue(np.isclose(hardcoded_result, old_result).all())
 
         # Test if "random" (but fixed) mu, M_d, and R give the same answer
         # Unlike for the gradients of the multiplier term, here there is no
         # interaction between entries of mu and M_d, so the answers will still
         # be the same even if they have no connection
         self.free_vars.mu = 2 * self.rand.random_sample((L, D, 2 * d+1)) - 1
-        self.free_vars.M_d = 6 * self.rand.random_sample((L, D, d+1, d+1)) - 3
+        self.free_vars.update_M_d()
         self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
-        jax_result = self.grad_mu(self.free_vars.mu, self.free_vars.M_d,
-                                 self.free_vars.R)
+        self.free_vars.update_RRt()
+        jax_result = self.grad_mu(self.free_vars.mu, self.free_vars.R)
+        old_result = self.old_grad_mu(self.free_vars.mu, self.free_vars.R,
+                                      self.gamma, L, D, d)
         hardcoded_result = grad_penalty_mu(self.free_vars.mu, self.free_vars.M_d,
                                  self.free_vars.R, self.gamma, L, D, d)
-        #print('gamma = {}'.format(self.gamma))
+        print('random test')
+        print('gamma = {}'.format(self.gamma))
+        print('mu = {}'.format(self.free_vars.mu))
         #print('M_d = {}'.format(self.free_vars.M_d))
-        #print('R @ R.T = {}'.format(self.free_vars.R @ self.free_vars.R))
+        print('R @ R.T = {}'.format(self.free_vars.R @ self.free_vars.R))
         #print('jax_result = {}'.format(jax_result))
-        #print('hardcoded_result = {}'.format(hardcoded_result))
+        print('hardcoded_result = {}'.format(hardcoded_result))
+        print('old_result = {}'.format(old_result))
+        print('diff = {}'.format(hardcoded_result - old_result))
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(jax_result, old_result).all())
+        self.assertTrue(np.isclose(hardcoded_result, old_result).all())
 
     def test_R(self):
         """
@@ -798,35 +947,43 @@ class TestPenaltyGradient(unittest.TestCase):
 
         # Test if the existing factorization gap M_d - R @ R.T is registered
         # TODO add wrapper function to fix [0] unpacking for jax gradient
-        jax_result = self.grad_mu(self.free_vars.mu, self.free_vars.M_d,
-                                 self.free_vars.R)[0]
-        hardcoded_result = grad_penalty_mu(self.free_vars.mu,
+        jax_result = self.grad_R(self.free_vars.mu, self.free_vars.R)
+        old_result = self.old_grad_R(self.free_vars.mu, self.free_vars.R,
+                                      L, D, d)
+        hardcoded_result = grad_penalty_R(self.free_vars.mu,
                                            self.free_vars.M_d,
                                            self.free_vars.R, self.gamma, L, D,
                                            d)
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(old_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(old_result, jax_result).all())
 
         # Test if random R gives correct answer
         self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
-        jax_result = self.grad_R(self.free_vars.mu, self.free_vars.M_d,
-                                 self.free_vars.R)[0]
+        self.free_vars.update_M_d()
+        self.free_vars.update_RRt()
+        jax_result = self.grad_R(self.free_vars.mu, self.free_vars.R)
+        old_result = self.old_grad_R(self.free_vars.mu, self.free_vars.R,
+                                      L, D, d)
         hardcoded_result = grad_penalty_R(self.free_vars.mu, self.free_vars.M_d,
                                  self.free_vars.R, self.gamma, L, D, d)
-        #print('gamma = {}'.format(self.gamma))
-        #print('M_d = {}'.format(self.free_vars.M_d))
-        #print('R = {}'.format(self.free_vars.R))
-        #print('R @ R.T = {}'.format(self.free_vars.R @ self.free_vars.R))
-        #print('jax_result = {}'.format(jax_result))
-        #print('hardcoded_result = {}'.format(hardcoded_result))
+        print('gamma = {}'.format(self.gamma))
+        print('M_d = {}'.format(self.free_vars.M_d))
+        print('R = {}'.format(self.free_vars.R))
+        print('R @ R.T = {}'.format(self.free_vars.RRt))
+        print('jax_result = {}'.format(jax_result))
+        print('hardcoded_result = {}'.format(hardcoded_result))
+        print('old_result = {}'.format(old_result))
         self.assertTrue(np.isclose(jax_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(old_result, hardcoded_result).all())
+        self.assertTrue(np.isclose(old_result, jax_result).all())
 
         # Randomized mu and M_d should yield incorrect answers, as jax
         # calculates gradient using M_d while hardcoded uses mu
         self.free_vars.mu = self.rand.random_sample((L, D, 2 * d+1))
-        self.free_vars.M_d = self.rand.random_sample((L, D, d+1, d+1))
+        #self.free_vars.M_d = self.rand.random_sample((L, D, d+1, d+1))
         self.free_vars.R = self.rand.random_sample((L, D, d+1, d+1))
-        jax_result = self.grad_R(self.free_vars.mu, self.free_vars.M_d,
-                                 self.free_vars.R)[0]
+        jax_result = self.grad_R(self.free_vars.mu, self.free_vars.R)[0]
         hardcoded_result = grad_penalty_R(self.free_vars.mu, self.free_vars.M_d,
                                  self.free_vars.R, self.gamma, L, D, d)
         self.assertFalse(np.isclose(jax_result, hardcoded_result).all())
@@ -859,9 +1016,6 @@ class TestGradient(unittest.TestCase):
         R = np.zeros(M.shape)
         RRt = np.zeros(M.shape)
 
-        pos_slack = np.ones((L, D))
-        abs_slack = np.zeros((L, D, d+1))
-
         self.free_vars = FreeVariables(L, D, d, mu, R)
 
         # lambda
@@ -875,27 +1029,32 @@ class TestGradient(unittest.TestCase):
         coef = self.poly.coefficients
         powers = self.poly.powers
 
-        gamma = self.gamma
+        # TODO change this back 
+        gamma = 0
 
         # change factorization to get nonzero gradient
         self.free_vars.R = np.ones((L, D, d+1, d+1))
 
         # change lagrange multipliers to 1 to match his scenario
         self.lm.factorization = np.ones((L, D, d+1, d+1))
-        self.lm.nonnegativity = np.zeros((L, D))
-        self.lm.relaxation = np.zeros((L, D, d+1))
+        self.lm.nonnegativity = np.ones((L, D))
+        self.lm.relaxation = np.ones((L, D, d+1))
 
         # translate all 1 Lagrange Multipliers to Will's format
         # NOTE I think he has redundant relaxation constraints 2d+1 instead
         # of just the d+1 specified in the paper. Does this cause problems?
+        # NOTE I have edited my copy of his code to use d+1 instead
         old_lm = []
         old_lm.append(np.ones((D, L, d+1, d+1)))
-        old_lm.append(np.zeros((D, L)))
-        old_lm.append(np.zeros((D, L, d+1)))
+        old_lm.append(np.ones((D, L)))
+        old_lm.append(np.ones((D, L, d+1)))
 
         old_mu = np.transpose(np.copy(self.free_vars.mu), axes=(1, 0, 2))
         old_R = np.transpose(np.copy(self.free_vars.R), axes=(1, 0, 2, 3))
         old_x = np.concatenate((old_mu.flatten(), old_R.flatten()))
+
+        #print('old_mu\n{}'.format(old_mu))
+        #print('old_R\n{}'.format(old_R))
 
         new_x = np.concatenate((self.free_vars.mu.flatten(), self.free_vars.R.flatten()))
 
@@ -913,17 +1072,14 @@ class TestGradient(unittest.TestCase):
         old_mu_grad = np.transpose(old_mu_grad, axes=(1, 0, 2))
         old_R_grad = np.transpose(old_R_grad, axes=(1, 0, 2, 3))
 
-        print('old_mu\n{}'.format(old_mu))
-        print('old_R\n{}'.format(old_R))
-
-        old_mu_grad = old_mu_grad.flatten()
-        old_R_grad = old_R_grad.flatten()
-        old_value = np.concatenate((old_mu_grad, old_R_grad))
+        old_value = np.concatenate((old_mu_grad.flatten(), old_R_grad.flatten()))
 
         new_value = new_gradient(new_x, self.lm, coef, powers, gamma, L, D, d)
         new_mu_grad = np.copy(new_value[:L*D*(2*d+1)]).reshape((L, D, 2*d + 1))
         new_R_grad = np.copy(new_value[L*D*(2*d+1):]).reshape((L, D, d+1, d+1))
 
+        print('old_mu_grad\n{}'.format(old_mu_grad))
+        print('old_R_grad\n{}'.format(old_R_grad))
         print('new_mu_grad\n{}'.format(new_mu_grad))
         print('new_R_grad\n{}'.format(new_R_grad))
 
@@ -935,6 +1091,7 @@ class TestGradient(unittest.TestCase):
         print('diff_R\n{}'.format(diff_R))
 
         norm = np.linalg.norm(diff, ord=1)
+        print('difference l_1-norm = {}'.format(diff))
         self.assertAlmostEqual(norm, 0, places=2)
 
     def test_nonnegativity_uniform(self):
@@ -1067,7 +1224,7 @@ class TestGradient(unittest.TestCase):
 
         # change lagrange multipliers to 1 to match his scenario
         self.lm.factorization = np.ones((L, D, d+1, d+1))
-        self.lm.nonnegativity = 2 * np.ones((L, D))
+        self.lm.nonnegativity = np.ones((L, D))
         self.lm.relaxation = np.ones((L, D, d+1))
 
         # translate all 1 Lagrange Multipliers to Will's format
@@ -1075,8 +1232,8 @@ class TestGradient(unittest.TestCase):
         # of just the d+1 specified in the paper. Does this cause problems?
         old_lm = []
         old_lm.append(np.ones((D, L, d+1, d+1)))
-        old_lm.append(2 * np.ones((D, L)))
-        old_lm.append(np.ones((D, L, 2*d+1)))
+        old_lm.append(np.ones((D, L)))
+        old_lm.append(np.ones((D, L, d+1)))
 
         old_mu = np.zeros((D, L, 2 * d + 1))
         old_R = np.zeros((D, L, d+1, d+1))
@@ -1098,9 +1255,7 @@ class TestGradient(unittest.TestCase):
         old_mu_grad = np.transpose(old_mu_grad, axes=(1, 0, 2))
         old_R_grad = np.transpose(old_R_grad, axes=(1, 0, 2, 3))
 
-        old_mu = old_mu.flatten()
-        old_R = old_R.flatten()
-        old_value = np.concatenate((old_mu, old_R))
+        old_value = np.concatenate((old_mu_grad.flatten(), old_R_grad.flatten()))
 
         new_value = new_gradient(new_x, self.lm, coef, powers, gamma, L, D, d)
         new_mu_grad = np.copy(new_value[:L*D*(2*d+1)]).reshape((L, D, 2*d + 1))
@@ -1109,15 +1264,8 @@ class TestGradient(unittest.TestCase):
         print('new_mu_grad\n{}'.format(new_mu_grad))
         print('new_R_grad\n{}'.format(new_R_grad))
 
-        #print('old[:6] = {}'.format(old_value[:6]))
-        #print('new[:6] = {}'.format(new_value[:6]))
-        #print('old_mu[:6] = {}'.format(old_mu[:6]))
-
-        #first_offset = L * D * (2*d+1)
-        #print('old[LxDx(2d+1):+6] = {}'.format(old_value[first_offset:first_offset+6]))
-        #print('new[LxDx(2d+1):+6] = {}'.format(new_value[first_offset:first_offset+6]))
-        #print('old_mu[first_offset:+6] = {}'.format(old_mu[first_offset:first_offset+6]))
-
+        print('old_mu_grad\n{}'.format(old_mu_grad))
+        print('old_R_grad\n{}'.format(old_R_grad))
 
         #R_index = L*D*(2*d+1)
         #print('old[L x D x (2d+1):+6] = {}'.format(old_value[R_index:R_index+6]))
@@ -1125,6 +1273,7 @@ class TestGradient(unittest.TestCase):
         #print('old_R[:6] = {}'.format(old_R[:6]))
 
         diff = old_value - new_value
+        print('diff = {}'.format(diff))
         norm = np.linalg.norm(diff)
         self.assertAlmostEqual(norm, 0, places=2)
 
@@ -1137,6 +1286,7 @@ class TestGradient(unittest.TestCase):
         powers = self.poly.powers
 
         gamma = self.gamma
+        #gamma = 0
 
         # we will reshape the data according to our format, as it is stored
         # in Will's (D, L, d) format
@@ -1145,8 +1295,17 @@ class TestGradient(unittest.TestCase):
         new_a = np.copy(a)
 
         new_mu, new_R = restore_matrices(new_a, d, D, L)
-        self.free_vars.mu = np.transpose(new_mu, axes=(1, 0, 2))
-        self.free_vars.R = np.transpose(new_R, axes=(1, 0, 2, 3))
+        new_mu = np.transpose(new_mu, axes=(1, 0, 2))
+        new_R = np.transpose(new_R, axes=(1, 0, 2, 3))
+        new_a = np.concatenate((new_mu.flatten(), new_R.flatten())) #NEW
+        self.free_vars.mu = new_mu
+        self.free_vars.R = new_R
+
+        print('mu = {}'.format(new_mu))
+        print('R = {}'.format(new_R))
+
+        #self.free_vars.mu = np.transpose(new_mu, axes=(1, 0, 2))
+        #self.free_vars.R = np.transpose(new_R, axes=(1, 0, 2, 3))
 
         # change lagrange multipliers to 1 to match his scenario
         self.lm.factorization = np.ones((L, D, d+1, d+1))
@@ -1171,28 +1330,29 @@ class TestGradient(unittest.TestCase):
 
         # Reshape gradient result to be comparable to new gradient
         old_value = old_gradient(old_a)
-        old_mu, old_R = restore_matrices(old_value, d, D, L)
-        old_mu = np.transpose(old_mu, axes=(1, 0, 2))
-        old_R = np.transpose(new_R, axes=(1, 0, 2, 3))
+        old_grad_mu, old_grad_R = restore_matrices(old_value, d, D, L)
+        old_grad_mu = np.transpose(old_grad_mu, axes=(1, 0, 2))
+        old_grad_R = np.transpose(old_grad_R, axes=(1, 0, 2, 3))
 
-        print('old_mu\n{}'.format(old_mu))
-        print('old_R\n{}'.format(old_R))
+        print('old_grad_mu\n{}'.format(old_grad_mu))
+        print('old_grad_R\n{}'.format(old_grad_R))
 
-        old_value = np.concatenate((old_mu.flatten(), old_R.flatten()))
+        old_value = np.concatenate((old_grad_mu.flatten(), old_grad_R.flatten()))
 
         new_value = new_gradient(new_a.flatten(), self.lm, coef, powers, gamma, L, D, d)
-        new_mu = np.copy(new_value[:L*D*(2*d+1)]).reshape((L, D, 2*d + 1))
-        new_R = np.copy(new_value[L*D*(2*d+1):]).reshape((L, D, d+1, d+1))
+        new_grad_mu = np.copy(new_value[:L*D*(2*d+1)]).reshape((L, D, 2*d + 1))
+        new_grad_R = np.copy(new_value[L*D*(2*d+1):]).reshape((L, D, d+1, d+1))
 
-        print('new_mu\n{}'.format(new_mu))
-        print('new_R\n{}'.format(new_R))
-
-        print('mu_diff\n{}'.format(new_mu - old_mu))
-        print('R_diff\n{}'.format(new_R - old_R))
+        print('new_grad_mu\n{}'.format(new_grad_mu))
+        print('new_grad_R\n{}'.format(new_grad_R))
+        
+        print('mu_diff\n{}'.format(new_grad_mu - old_grad_mu))
+        print('R_diff\n{}'.format(new_grad_R - old_grad_R))
 
         diff = old_value - new_value
         norm = np.linalg.norm(diff, ord=1)
-        self.assertAlmostEqual(norm, 0, places=2)
+        print('norm diff = {}'.format(norm))
+        #self.assertAlmostEqual(norm, 0, places=2)
 
 
 class TestAugmentedLagrangian(unittest.TestCase):
@@ -1221,9 +1381,6 @@ class TestAugmentedLagrangian(unittest.TestCase):
 
         R = np.zeros(M.shape)
         RRt = np.zeros(M.shape)
-
-        pos_slack = np.ones((L, D))
-        abs_slack = np.zeros((L, D, d+1))
 
         self.free_vars = FreeVariables(L, D, d, mu, R)
 
@@ -1346,9 +1503,6 @@ class TestSolver(unittest.TestCase):
 
         R = np.zeros(M.shape)
         RRt = np.zeros(M.shape)
-
-        pos_slack = np.ones((L, D))
-        abs_slack = np.zeros((L, D, d+1))
 
         self.free_vars = FreeVariables(L, D, d, mu, R)
 

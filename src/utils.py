@@ -235,7 +235,6 @@ def multiply_lagrangian(l_factorization, l_nonnegativity, l_relaxation,
     """
     # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
     RRt = jnp.einsum('abik,abjk->abij', R, R)
-    #RRt = jnp.inner(R, R) # = R @ R.T
     total = 0
 
     # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
@@ -314,9 +313,10 @@ def grad_penalty_mu(mu, M_d, R, gamma, L, D, d):
 
     # nonnegativity infeasibilities, >= 0 and == 1 for i = 2, ..., D
     # highlight infeasible mu_1,0 (in this case, negatives)
+    # TODO fix nondifferentiability issues with this for == 0
     infeas = np.copy(mu[:,0,0])
     infeas[infeas >= 0] = 0
-    result[:,0,0] += infeas
+    result[:,0,0] += -1 * infeas
 
     # gradient for mu_i,0 for i = 2, ..., D (constraint is == 1)
     result[:,1:,0] += mu[:,1:,0] - np.ones((L, D-1))
@@ -339,7 +339,7 @@ def grad_penalty_R(mu, M_d, R, gamma, L, D, d):
     RRt = np.einsum('abik,abjk->abij', R, R)
     return 2 * gamma * (RRt - M_d) @ R
 
-def grad_R(l_factorization, l_nonnegativity, l_relaxation,
+def grad_lm_R(l_factorization, l_nonnegativity, l_relaxation,
                         mu, R, L, D, d):
     """
     Returns gradients of the Lagrange multipliers term of the Lagrangian, with
@@ -369,9 +369,14 @@ def grad_mu(l_factorization, l_nonnegativity, l_relaxation,
             result[:,:,n_i] += l_factorization[:,:,lower+k,upper-1-k]
 
     # highlight infeasible mu_1,0 (in this case, negatives)
-    infeas = np.copy(mu[:,0,0])
-    infeas[infeas >= 0] = 0
-    result[:,0,0] += np.where(infeas < 0, l_nonnegativity[:,0], infeas)
+    #infeas = np.copy(mu[:,0,0])
+    #infeas[infeas >= 0] = 0
+    #result[:,0,0] += np.where(infeas < 0, l_nonnegativity[:,0], infeas)
+
+    # This averages the "derivative" in both directions because of the
+    # nondifferentiability of the infeasibility function at 0
+    result[:,0,0] += 0.5 * np.where(mu[:,0,0] < 0, l_nonnegativity[:,0], np.zeros_like(mu[:,0,0]))
+    result[:,0,0] += 0.5 * np.where(mu[:,0,0] <= 0, l_nonnegativity[:,0], np.zeros_like(mu[:,0,0]))
 
     # gradient for mu_i,0 for i = 2, ..., D (constraint is == 1)
     # this is just the Lagrange multiplier because constraint is linear
@@ -521,7 +526,8 @@ def new_gradient(free_vars, lm, coef, powers, gamma, L, D, d):
                        mu, R, L, D, d)
     mu_grad += grad_penalty_mu(mu, M_d, R, gamma, L, D, d)
 
-    R_grad = grad_R(lm.factorization, lm.nonnegativity, lm.relaxation,
+    R_grad = grad_penalty_R(mu, M_d, R, gamma, L, D, d)
+    R_grad += grad_lm_R(lm.factorization, lm.nonnegativity, lm.relaxation,
                        mu, R, L, D, d)
 
     # return gradients flattened and concatenated
@@ -593,9 +599,9 @@ def solver(poly, gamma, L, D, d, max_iter=10):
 
         print('|free_vars - old_free_vars| = {}'.format(
             np.linalg.norm(free_vars - old_free_vars)))
-        print(new_gradient(free_vars, lm, coef, powers, gamma, L, D, d)[:10])
-        print(np.linalg.norm(new_gradient(free_vars, lm, coef, powers, gamma, L, D, d))
-              / (L * D * (d*d + 4 * d + 2)))
+        #print(new_gradient(free_vars, lm, coef, powers, gamma, L, D, d)[:10])
+        #print(np.linalg.norm(new_gradient(free_vars, lm, coef, powers, gamma, L, D, d))
+        #      / (L * D * (d*d + 4 * d + 2)))
         #print('mu[:,0,0] =')
         #print(free_vars_obj.mu[:,0,0])
         #print('R[0,0,:3,:3] =')
@@ -709,7 +715,7 @@ def Augmented_Lagrangian(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_
     sum_result += term_2(D,L,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient)
     
     # #Third term
-    sum_result += rho/2*term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list)
+    sum_result += (rho/2) * term_3(D,L,x_mu_D_L_list,x_R_L_list)
     return sum_result
 
 def term_1(D,L,x_mu_D_L_list,orders_list,coefficients_list):
@@ -726,7 +732,6 @@ def term_1(D,L,x_mu_D_L_list,orders_list,coefficients_list):
 
 #Lagrangian term
 def term_2(D,L,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient):
-    # d = floor((2d+1) / 2)
     d = int(len(x_mu_D_L_list[0][0]) / 2)
 
     #Here we need to generate the real M_d matrix from our list of moments of measure
@@ -736,6 +741,7 @@ def term_2(D,L,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient):
     # Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
         for l in range(L):
+            # TODO change the form of this R @ R.T to the one used in term_3?
             sum += jnp.sum(Lagrangian_coefficient[0][i][l]*(x_M_D_L_list[i][l]-jnp.dot(x_R_L_list[i][l],x_R_L_list[i][l].T)))
     
 
@@ -762,23 +768,25 @@ def term_2(D,L,x_mu_D_L_list,x_R_L_list,Lagrangian_coefficient):
     return sum
 
 #Penanlty term
-def term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list):
+def term_3(D,L,x_mu_D_L_list,x_R_L_list):
+    d = int(len(x_mu_D_L_list[0][0]) / 2)
+    #Here we need to generate the real M_d matrix from our list of moments of measure
+    x_M_D_L_list = generate_M_d(x_mu_D_L_list,d,D,L)
     sum = 0 
     # Md(mu_0^(l)) - R_0^l R_0^l.T = 0
     for i in range(D):
         for l in range(L):
-            sum += jnp.sum(jnp.square((x_M_D_L_list[i][l]-jnp.dot(x_R_L_list[i][l],x_R_L_list[i][l].T))))
+            RRt = jnp.einsum('ik,jk->ij', x_R_L_list[i][l], x_R_L_list[i][l])
+            sum += jnp.sum(jnp.square((x_M_D_L_list[i][l] - RRt)))
        
     # mu_(1,0)^l>=0 
-    # here we define the penalty term as max(0, -g)**2 since we need to let it >=0 
     for l in range(L):
-        sum += max(0,-x_M_D_L_list[0][l][0,0])**2
+        sum += min(0,x_mu_D_L_list[0][l][0])**2
     
     # mu_(i,0)^l - 1 = 0
     for i in range(D-1):
         for l in range(L):
-            sum += (x_M_D_L_list[i+1][l][0,0]-1)**2
-
+            sum += (x_mu_D_L_list[i+1][l][0]-1)**2
        
     # B.2.1.
     for i in range(D):
@@ -786,6 +794,7 @@ def term_3(D,L,x_M_D_L_list,x_mu_D_L_list,x_R_L_list):
                 sum+= jnp.sum(jnp.square(jnp.maximum(0,-x_mu_D_L_list[i][l]-1)+jnp.maximum(0,x_mu_D_L_list[i][l]-1)))
     
     return sum
+
 #This is the sum of the polynomials
 def objective(D,L,x_M_D_L_list,orders_list,coefficients_list):
     sum = 0
