@@ -110,11 +110,14 @@ class LagrangeMultipliers:
         a sign in their definition of the augmented Lagrangian
         """
         # TODO update RRt and M_d?
+        free_vars.update_M_d()
+        free_vars.update_RRt()
         self.factorization += gamma * (free_vars.M_d - free_vars.RRt)
 
-        self.nonnegativity[:,0] += gamma * np.minimum(free_vars.mu[:,0,0], 0)
-        self.nonnegativity[:,1:] += gamma * (free_vars.mu[:,1:,0].reshape(self.L, self.D-1) -
-                      np.ones((self.L, self.D-1)))
+        #self.nonnegativity[:,0] += gamma * np.minimum(free_vars.mu[:,0,0], 0)
+        # NOTE changed
+        self.nonnegativity += gamma * (free_vars.mu[:,:,0].reshape(self.L, self.D) -
+                      np.ones((self.L, self.D)))
         self.relaxation += gamma * np.maximum(np.abs(free_vars.mu[:,:,:self.d+1]) -
                        np.ones((self.L, self.D, self.d+1)), 0)
 
@@ -243,14 +246,17 @@ def multiply_lagrangian(l_factorization, l_nonnegativity, l_relaxation,
     # between M_d and R @ R.T
     total += jnp.einsum('abij,abij->', M_d - RRt, l_factorization)
     
+    # NOTE changed from paper's >= 0 to == 1 (below)
     # 5. mu_(1,0)^l>=0, so anything positive is clipped
     total += jnp.minimum(mu[:,0,0], 0) @ l_nonnegativity[:,0]
 
+    # NOTE this is a change from the paper. Now we require all zeroth moments
+    # in first coordinate to be 1
     # 6. mu_(i,0)^l - 1 = 0
     total += jnp.einsum('ij,ij->',
-                  mu[:,1:,0].reshape(L, D-1) -
-                  jnp.ones((L, D-1)),
-                  l_nonnegativity[:,1:])
+                  mu[:,:,0].reshape(L, D) -
+                  jnp.ones((L, D)),
+                  l_nonnegativity[:,:])
 
     # B.2.1. check that relevant moments have absolute value at most 1
     A = jnp.maximum(jnp.abs(mu[:,:,:d+1]) -
@@ -311,15 +317,18 @@ def grad_penalty_mu(mu, M_d, R, gamma, L, D, d):
         for k in range(number):
             result[:,:,n_i] += diff[:,:,lower+k,upper-1-k]
 
+    # NOTE this has been removed, in a digression from the paper
+    # we have substituted in the thing below
     # nonnegativity infeasibilities, >= 0 and == 1 for i = 2, ..., D
     # highlight infeasible mu_1,0 (in this case, negatives)
     # TODO fix nondifferentiability issues with this for == 0
-    infeas = np.copy(mu[:,0,0])
-    infeas[infeas >= 0] = 0
-    result[:,0,0] += -1 * infeas
+    #infeas = np.copy(mu[:,0,0])
+    #infeas[infeas >= 0] = 0
+    #result[:,0,0] += -1 * infeas
 
+    # NOTE changed from paper to == 1 for all, not just i = 2, ..., D
     # gradient for mu_i,0 for i = 2, ..., D (constraint is == 1)
-    result[:,1:,0] += mu[:,1:,0] - np.ones((L, D-1))
+    result[:,:,0] += mu[:,:,0] - np.ones((L, D))
 
     # gradient for the relaxation constraint from B.2.1, restricting absolute
     # values to <= 1
@@ -373,15 +382,17 @@ def grad_mu(l_factorization, l_nonnegativity, l_relaxation,
     #infeas[infeas >= 0] = 0
     #result[:,0,0] += np.where(infeas < 0, l_nonnegativity[:,0], infeas)
 
+    # NOTE removed because we're making it == 1 for all i = 1, ..., D
     # This averages the "derivative" in both directions because of the
     # nondifferentiability of the infeasibility function at 0
-    result[:,0,0] += 0.5 * np.where(mu[:,0,0] < 0, l_nonnegativity[:,0], np.zeros_like(mu[:,0,0]))
-    result[:,0,0] += 0.5 * np.where(mu[:,0,0] <= 0, l_nonnegativity[:,0], np.zeros_like(mu[:,0,0]))
+    #result[:,0,0] += 0.5 * np.where(mu[:,0,0] < 0, l_nonnegativity[:,0], np.zeros_like(mu[:,0,0]))
+    #result[:,0,0] += 0.5 * np.where(mu[:,0,0] <= 0, l_nonnegativity[:,0], np.zeros_like(mu[:,0,0]))
 
-    # gradient for mu_i,0 for i = 2, ..., D (constraint is == 1)
+    # NOTE changed to all i = 1, ..., D from i = 2, ..., D
+    # gradient for mu_i,0 for i = 1, ..., D (constraint is == 1)
     # this is just the Lagrange multiplier because constraint is linear
     # function of mu
-    result[:,1:,0] += l_nonnegativity[:,1:]
+    result[:,:,0] += l_nonnegativity[:,:]
 
     # gradient for the relaxation constraint from B.2.1, restricting absolute
     # values to <= 1
@@ -423,12 +434,15 @@ def grad_lm_nonnegativity(l_factorization, l_nonnegativity, l_relaxation,
     Returns gradients of the Lagrange multipliers term of the Lagrangian, with
     respect to the factorization terms of the Lagrange multipliers vector
     """
-    result = np.zeros((L, D))
+    #result = np.zeros((L, D))
+    # NOTE this has been removed as we're now making it all == 1
     # 5. mu_(1,0)^l>=0, so linear if mu < 0, 0 otherwise
-    result[:,0] += np.minimum(mu[:,0,0], 0)
+    #result[:,0] += np.minimum(mu[:,0,0], 0)
 
-    # 6. mu_(i,0)^l - 1 = 0 for i = 2, ..., D, so linear
-    result[:,1:] += mu[:,1:,0].reshape(L, D-1) - np.ones((L, D-1))
+    # NOTE changed from i = 2, ..., D
+    # see old commits for old code, just an index +1
+    # 6. mu_(i,0)^l - 1 = 0 for i = 1, ..., D, so linear
+    result = mu[:,:,0].reshape(L, D) - np.ones((L, D))
     #jnp.einsum('ij,ij->',
     #              mu[:,1:,0].reshape(L, D-1) -
     #              jnp.ones((L, D-1)),
@@ -599,16 +613,6 @@ def solver(poly, gamma, L, D, d, max_iter=10):
 
         print('|free_vars - old_free_vars| = {}'.format(
             np.linalg.norm(free_vars - old_free_vars)))
-        #print(new_gradient(free_vars, lm, coef, powers, gamma, L, D, d)[:10])
-        #print(np.linalg.norm(new_gradient(free_vars, lm, coef, powers, gamma, L, D, d))
-        #      / (L * D * (d*d + 4 * d + 2)))
-        #print('mu[:,0,0] =')
-        #print(free_vars_obj.mu[:,0,0])
-        #print('R[0,0,:3,:3] =')
-        #print(free_vars_obj.R[0,0,:3,:3])
-        #for n in range(d+1):
-        #    for m in range(d+1):
-        #        free_vars_obj.M_d[:,:,n,m] = free_vars_obj.mu[:,:,n+m]
 
 
         # Update lm or gamma according to BM paper (note our gamma is their sigma)
@@ -629,7 +633,7 @@ def solver(poly, gamma, L, D, d, max_iter=10):
         x_min = free_vars_obj.optimal_location()
         print('x_min = {}'.format(x_min))
 
-    # Calculate and return final results
+    return x_min
 
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x

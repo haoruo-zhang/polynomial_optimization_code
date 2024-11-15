@@ -1363,7 +1363,6 @@ class TestGradient(unittest.TestCase):
         powers = self.poly.powers
 
         gamma = self.gamma
-        #gamma = 0
 
         # we will reshape the data according to our format, as it is stored
         # in Will's (D, L, d) format
@@ -1403,60 +1402,14 @@ class TestGradient(unittest.TestCase):
         print('new_grad_mu = {}'.format(new_grad_mu))
         print('new_grad_R = {}'.format(new_grad_R))
 
-        old_format_mu = np.transpose(new_grad_mu, (1, 0, 2))
-        old_format_R = np.transpose(new_grad_R, (1, 0, 2, 3))
-        weird_new = np.concatenate((old_format_mu.flatten(), old_grad_R.flatten()))
+        mu_grad_diff = new_grad_mu - old_grad_mu
+        R_grad_diff = new_grad_R - old_grad_R
 
-        old_value = np.concatenate((old_grad_mu.flatten(), old_grad_R.flatten()))
-        diff = np.linalg.norm(weird_new - d_grad, ord=1)
-        #diff = np.linalg.norm(new_value - old_value, ord=1)
-        self.assertAlmostEqual(diff, 0)
+        mu_diff_norm = np.linalg.norm(mu_grad_diff.flatten(), ord=np.inf)
+        R_diff_norm = np.linalg.norm(R_grad_diff.flatten(), ord=np.inf)
 
-        return
-
-        # translate all 1 Lagrange Multipliers to Will's format
-        # NOTE I think he has redundant relaxation constraints 2d+1 instead
-        # of just the d+1 specified in the paper. Does this cause problems?
-        old_lm = []
-        old_lm.append(np.ones((D, L, d+1, d+1)))
-        old_lm.append(np.ones((D, L)))
-        old_lm.append(np.ones((D, L, d+1)))
-
-        aug_lagrangian_partial = partial(Augmented_Lagrangian, d=d, D=D, L=L,
-                                         orders_list=powers,
-                                         coefficients_list=coef,
-                                         Lagrangian_coefficient=old_lm,
-                                         rho=gamma)
-
-        old_gradient = jax.grad(aug_lagrangian_partial)
-
-        # Reshape gradient result to be comparable to new gradient
-        old_value = old_gradient(old_a)
-        old_grad_mu, old_grad_R = restore_matrices(old_value, d, D, L)
-        old_grad_mu = np.transpose(old_grad_mu, axes=(1, 0, 2))
-        old_grad_R = np.transpose(old_grad_R, axes=(1, 0, 2, 3))
-
-        print('old_grad_mu\n{}'.format(old_grad_mu))
-        print('old_grad_R\n{}'.format(old_grad_R))
-
-        old_value = np.concatenate((old_grad_mu.flatten(), old_grad_R.flatten()))
-
-        new_value = new_gradient(new_a.flatten(), self.lm, coef, powers, gamma, L, D, d)
-        new_grad_mu = np.copy(new_value[:L*D*(2*d+1)]).reshape((L, D, 2*d + 1))
-        new_grad_R = np.copy(new_value[L*D*(2*d+1):]).reshape((L, D, d+1, d+1))
-
-        print('new_grad_mu\n{}'.format(new_grad_mu))
-        print('new_grad_R\n{}'.format(new_grad_R))
-        
-        print('mu_diff\n{}'.format(new_grad_mu - old_grad_mu))
-        print('R_diff\n{}'.format(new_grad_R - old_grad_R))
-
-        diff = old_value - new_value
-        norm = np.linalg.norm(diff, ord=1)
-        print('norm diff = {}'.format(norm))
-        #self.assertAlmostEqual(norm, 0, places=2)
-
-
+        self.assertAlmostEqual(mu_diff_norm, 0, places=3)
+        self.assertAlmostEqual(R_diff_norm, 0, places=3)
 
 class TestAugmentedLagrangian(unittest.TestCase):
     def setUp(self):
