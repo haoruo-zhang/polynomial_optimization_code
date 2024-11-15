@@ -1565,6 +1565,29 @@ class TestSolver(unittest.TestCase):
         # lambda
         self.lm = LagrangeMultipliers(L, D, d)
 
+    def test_a(self):
+        L = 6
+        D = 2
+        d = 4
+
+        coefficients = (4, 4, -4, -4, 1, 1, 2)
+        powers = ((4, 0),
+                  (0, 4),
+                  (2, 0),
+                  (0, 2),
+                  (1, 0),
+                  (0, 1),
+                  (0, 0))
+        poly = PolySupport(coefficients, powers)
+        solver(poly, self.gamma, L, D, d)
+        return
+
+    def test_example_1(self):
+        # TODO is this correct?
+        self.d = 8
+        poly = ExampleF(self.D)
+        solver(poly, self.gamma, self.L, self.D, self.d)
+        return
 
     def test_example_2(self):
         poly = ExampleG(self.D)

@@ -16,6 +16,45 @@ class PolySupport:
         self.coefficients = coefficients
         self.powers = powers
 
+class ExampleF(PolySupport):
+    """
+    Generates the polynomial $f_D(x)$ from example 3.1 in Letourneau paper, in
+    given dimension D
+    """
+    def __init__(self, D):
+        # define variable x_1, x_2, ..., x_D
+        x = sp.symbols(f'x1:{D+1}')
+        
+        # Create the polynomial
+        T_2 = [sp.polys.orthopolys.chebyshevt_poly(2, x=x[i]) for i in range(D)]
+        T_8 = [sp.polys.orthopolys.chebyshevt_poly(8, x=x[i]) for i in range(D)]
+        product = 1
+        for i in range(D):
+            product *= T_8[i]
+        polynomial = (1 / D) * sum(T_2) - product
+      
+        # Expand the result
+        expanded_result = sp.expand(polynomial)
+        
+        # Get all terms in the expanded results
+        terms = expanded_result.as_ordered_terms()
+
+        coefficients = []
+        powers = []
+        
+        for term in terms:
+            monomial = sp.Poly(term, x)
+
+            # translate coefficient to floating point from sympy format
+            coef = float(sp.polys.polytools.LC(monomial))
+            coefficients.append(coef)
+
+            n = sp.degree_list(monomial)
+            n_int = tuple(int(n_i) for n_i in n)
+            powers.append(n_int)
+
+        super().__init__(coefficients, powers)
+
 # Polynomial support of the polynomial in example 3.2 of Letourneau et al. 2024
 class ExampleG(PolySupport):
     """
@@ -576,6 +615,10 @@ def solver(poly, gamma, L, D, d, max_iter=10):
     # v_k is the penalty term not scaled by gamma / 2
     v_k = (2 / gamma) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
                                     free_vars_obj.R, gamma, L, D, d)
+
+    # Initial x location
+    x_min = free_vars_obj.optimal_location()
+    print('Initial x location = {}'.format(x_min))
 
     for iteration in range(max_iter):
         #print("-"*40)
