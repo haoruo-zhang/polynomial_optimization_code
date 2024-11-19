@@ -610,7 +610,7 @@ def solver(poly, gamma, L, D, d, max_iter=10):
 
     lm = LagrangeMultipliers(L, D, d)
 
-    print("Now we begin with D = {}".format(D))
+    print("(L, D, d) = ({}, {}, {})".format(L, D, d))
 
     # v_k is the penalty term not scaled by gamma / 2
     v_k = (2 / gamma) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
