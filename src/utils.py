@@ -688,8 +688,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         print('Objective value / L = {}'.format(
             new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
         
-        print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.M_d,
-                          gamma, L, D, d)
+        #print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.M_d,
+        #                  gamma, L, D, d)
 
         # Update lm or gamma according to BM paper (note our gamma is their sigma)
         v = (2 / gamma ) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
