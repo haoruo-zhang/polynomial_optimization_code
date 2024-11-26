@@ -15,6 +15,19 @@ class PolySupport:
     def __init__(self, coefficients, powers):
         self.coefficients = coefficients
         self.powers = powers
+        self.D = len(powers[0])
+        self.d = max([max(n) for n in powers])
+
+    def evaluate(self, x):
+        total = 0
+        for c, p in zip(self.coefficients, self.powers):
+            term = 1
+            for i in range(self.D):
+                term *= (x[i]) ** p[i]
+
+            total += c * term
+
+        return total
 
 class ExampleF(PolySupport):
     """
@@ -616,7 +629,7 @@ def new_gradient(free_vars, lm, coef, powers, gamma, L, D, d):
 
 #TODO update docstring
 def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
-           seed=1243124242):
+           seed=1243124242, verbose=True):
     """
     L is the number of measures
     rho is the value of penalty term gamma
@@ -638,12 +651,14 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
     free_vars_obj = FreeVariables(L, D, d, seed=seed)
     free_vars = free_vars_obj.flattened()
     M_d = free_vars_obj.M_d
-    print('Objective value / L = {}'.format(
-        new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
+    if verbose:
+        print('Objective value / L = {}'.format(
+            new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
 
     lm = LagrangeMultipliers(L, D, d)
 
-    print("(L, D, d) = ({}, {}, {})".format(L, D, d))
+    if verbose:
+        print("(L, D, d) = ({}, {}, {})".format(L, D, d))
 
     # v_k is the penalty term not scaled by gamma / 2
     v_k = (2 / gamma) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
@@ -651,7 +666,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
 
     # Initial x location
     x_min = free_vars_obj.optimal_location()
-    print('Initial x location = {}'.format(x_min))
+    if verbose:
+        print('Initial x location = {}'.format(x_min))
 
     for iteration in range(max_iter):
         # NOT a partial derivative
@@ -672,11 +688,12 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
                             'maxcor': 40,             # The order of the approximation Hessian
                         })
         
-        print("\nIteration: {}".format(iteration))
-        print("min L = ", result.fun)
-        #print("Was the optimization successful?", result.success)
-        print("Number of L-BFGS iterations:", result.nit)
-        #print(result.message)
+        if verbose:
+            print("\nIteration: {}".format(iteration))
+            print("min L = ", result.fun)
+            #print("Was the optimization successful?", result.success)
+            print("Number of L-BFGS iterations:", result.nit)
+            #print(result.message)
 
         # update free variables and our object tracking them
         old_free_vars = np.copy(free_vars)
@@ -685,8 +702,9 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         free_vars_obj.mu = np.reshape(np.copy(free_vars[:mu_size]), (L, D, 2*d+1))
         free_vars_obj.R = np.reshape(np.copy(free_vars[mu_size:]), (L, D, d+1, d+1))
         free_vars_obj.update_M_d()
-        print('Objective value / L = {}'.format(
-            new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
+        if verbose:
+            print('Objective value / L = {}'.format(
+                new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
         
         #print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.M_d,
         #                  gamma, L, D, d)
@@ -694,23 +712,30 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         # Update lm or gamma according to BM paper (note our gamma is their sigma)
         v = (2 / gamma ) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
                                        free_vars_obj.R, gamma, L, D, d)
-        print('v = {}'.format(v))
+        if verbose:
+            print('v = {}'.format(v))
+
         if v < eta * v_k:
             lm.update(free_vars_obj, gamma)
             v_k = v
-            print('updated lagrangian')
+            if verbose:
+                print('updated lagrangian')
         else:
             gamma *= multiplier
-            print('updated gamma = {}'.format(gamma))
+            if verbose:
+                print('updated gamma = {}'.format(gamma))
 
-        print('v_k = {}'.format(v_k))
+        if verbose:
+            print('v_k = {}'.format(v_k))
 
         # Calculate the x_min
         x_min = free_vars_obj.optimal_location()
-        print('current recovered minimizer = {}'.format(x_min))
+        if verbose:
+            print('current recovered minimizer = {}'.format(x_min))
 
     x_min = free_vars_obj.optimal_location()
-    print('final minimizer = {}'.format(x_min))
+    if verbose:
+        print('final minimizer = {}'.format(x_min))
     return x_min
 
 
