@@ -170,10 +170,6 @@ class LagrangeMultipliers:
 #         component measures in M_d
 # RRt   - tensor containing R @ R.T for each R. This is updated when we evaluate
 #         the Lagrangian after updating R
-# pos_slack - slack variables to enforce product measure constraints:
-#              positivity constraints on mu_1,0^l and mu_i,0 = 1 constraints for i = 2, ...,
-#              D
-# abs_slack  - slack variable to enforce |mu_{i,n_i}^l| <= 1 from B.2.1
 class FreeVariables:
     def __init__(self, L, D, d, mu=None, R=None, seed=None):
         self.L = L
@@ -198,10 +194,6 @@ class FreeVariables:
 
         # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
         self.update_RRt()
-
-        # TODO reevaluate and remove these?
-        self.pos_slack = jnp.ones((L, D))
-        self.abs_slack = jnp.zeros((L, D, d+1))
 
     def flattened(self):
         # TODO does this copy the arrays? If not, does this cause problems?
@@ -667,7 +659,7 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         # Update lm or gamma according to BM paper (note our gamma is their sigma)
         v = (2 / gamma ) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
                                        free_vars_obj.R, gamma, L, D, d)
-        print('v_k = {}'.format(v_k))
+        print('v = {}'.format(v))
         if v < eta * v_k:
             lm.update(free_vars_obj, gamma)
             v_k = v
@@ -675,6 +667,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         else:
             gamma *= multiplier
             print('updated gamma = {}'.format(gamma))
+
+        print('v_k = {}'.format(v_k))
 
         # Calculate the x_min
         x_min = free_vars_obj.optimal_location()
