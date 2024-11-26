@@ -674,7 +674,6 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
             print('updated lagrangian')
         else:
             gamma *= multiplier
-            v_k = v
             print('updated gamma = {}'.format(gamma))
 
         # Calculate the x_min
