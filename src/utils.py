@@ -148,7 +148,6 @@ class LagrangeMultipliers:
         we are adding to the multipliers when they subtract because they flip
         a sign in their definition of the augmented Lagrangian
         """
-        # TODO update RRt and M_d?
         free_vars.update_M_d()
         free_vars.update_RRt()
         self.factorization += gamma * (free_vars.M_d - free_vars.RRt)
@@ -317,6 +316,43 @@ def new_penalty(mu, M_d, R, gamma, L, D, d):
 
     # 6. mu_(i,0)^l - 1 = 0
     diff = mu[:,1:,0].reshape(L, D-1) - jnp.ones((L, D-1))
+    total += jnp.einsum('ij,ij->', diff, diff)
+
+    # B.2.1. check that relevant moments have absolute value at most 1
+    A = jnp.maximum(jnp.abs(mu[:,:,:d+1]) -
+                   jnp.ones((L, D, d+1)), 0)
+    total += jnp.einsum('ijk,ijk->', A, A)
+
+    # TODO redundant B.2.2 numerical stability constraint
+    return (gamma / 2) * total
+
+def print_new_penalty(mu, M_d, R, gamma, L, D, d):
+    """
+    Calculate penalty term by adding up squared infeasibilities
+    """
+    # RRt = R @ R.T for each of the D x L factorizations M = R @ R.T
+    RRt = jnp.einsum('abik,abjk->abij', R, R)
+    #RRt = jnp.inner(R, R) # = R @ R.T
+    total = 0
+
+    # 1.Md(mu_0^(l)) - R_0^l R_0^l.T = 0
+    # Penalize inaccurate factorizations
+    diff = M_d - RRt
+    # DEBUGGING
+    print('norm(M_d - RRt) = {}'.format(np.linalg.norm(diff.flatten(), ord=1)))
+    total += jnp.einsum('abij,abij->', diff, diff)
+    
+    # 5. mu_(1,0)^l>=0, so anything positive is clipped
+    negatives = jnp.minimum(mu[:,0,0], 0)
+    # DEBUGGING
+    print('|nonnegativities| = {}'.format(np.linalg.norm(negatives, ord=1)))
+    print('mu[:,0,0] = {}'.format(mu[:,0,0]))
+    total += negatives @ negatives
+
+    # 6. mu_(i,0)^l - 1 = 0
+    diff = mu[:,1:,0].reshape(L, D-1) - jnp.ones((L, D-1))
+    # DEBUGGING
+    print('norm(M_d - RRt) = {}'.format(np.linalg.norm(diff.flatten(), ord=1)))
     total += jnp.einsum('ij,ij->', diff, diff)
 
     # B.2.1. check that relevant moments have absolute value at most 1
@@ -651,10 +687,9 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         free_vars_obj.update_M_d()
         print('Objective value / L = {}'.format(
             new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
-
-        #print('|free_vars - old_free_vars| = {}'.format(
-        #    np.linalg.norm(free_vars - old_free_vars)))
-
+        
+        print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.M_d,
+                          gamma, L, D, d)
 
         # Update lm or gamma according to BM paper (note our gamma is their sigma)
         v = (2 / gamma ) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,

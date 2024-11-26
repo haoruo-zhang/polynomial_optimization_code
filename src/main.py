@@ -18,4 +18,5 @@ def main():
     solver(poly, gamma=1_000, seed=None)
 
 if __name__ == '__main__':
-    experiment_1()
+    main()
+    #experiment_1()
