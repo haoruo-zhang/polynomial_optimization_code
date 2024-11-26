@@ -610,6 +610,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
     free_vars_obj = FreeVariables(L, D, d, seed=seed)
     free_vars = free_vars_obj.flattened()
     M_d = free_vars_obj.M_d
+    print('Objective value / L = {}'.format(
+        new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
 
     lm = LagrangeMultipliers(L, D, d)
 
@@ -655,16 +657,17 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         free_vars_obj.mu = np.reshape(np.copy(free_vars[:mu_size]), (L, D, 2*d+1))
         free_vars_obj.R = np.reshape(np.copy(free_vars[mu_size:]), (L, D, d+1, d+1))
         free_vars_obj.update_M_d()
+        print('Objective value / L = {}'.format(
+            new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
 
-        print('|free_vars - old_free_vars| = {}'.format(
-            np.linalg.norm(free_vars - old_free_vars)))
+        #print('|free_vars - old_free_vars| = {}'.format(
+        #    np.linalg.norm(free_vars - old_free_vars)))
 
 
         # Update lm or gamma according to BM paper (note our gamma is their sigma)
         v = (2 / gamma ) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
                                        free_vars_obj.R, gamma, L, D, d)
         print('v_k = {}'.format(v_k))
-        print('v = {}'.format(v))
         if v < eta * v_k:
             lm.update(free_vars_obj, gamma)
             v_k = v
@@ -676,8 +679,10 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
 
         # Calculate the x_min
         x_min = free_vars_obj.optimal_location()
-        print('x_min = {}'.format(x_min))
+        print('current recovered minimizer = {}'.format(x_min))
 
+    x_min = free_vars_obj.optimal_location()
+    print('final minimizer = {}'.format(x_min))
     return x_min
 
 
