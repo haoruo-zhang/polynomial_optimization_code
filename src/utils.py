@@ -290,8 +290,9 @@ def multiply_lagrangian(l_factorization, l_nonnegativity, l_relaxation,
     total += jnp.einsum('abij,abij->', M_d - RRt, l_factorization)
     
     # NOTE changed from paper's >= 0 to == 1 (below)
+    # so this part is now obsolete
     # 5. mu_(1,0)^l>=0, so anything positive is clipped
-    total += jnp.minimum(mu[:,0,0], 0) @ l_nonnegativity[:,0]
+    #total += jnp.minimum(mu[:,0,0], 0) @ l_nonnegativity[:,0]
 
     # NOTE this is a change from the paper. Now we require all zeroth moments
     # in first coordinate to be 1
@@ -457,12 +458,12 @@ def grad_mu(l_factorization, l_nonnegativity, l_relaxation,
         for k in range(number):
             result[:,:,n_i] += l_factorization[:,:,lower+k,upper-1-k]
 
+    # NOTE removed because we're making it == 1 for all i = 1, ..., D
     # highlight infeasible mu_1,0 (in this case, negatives)
     #infeas = np.copy(mu[:,0,0])
     #infeas[infeas >= 0] = 0
     #result[:,0,0] += np.where(infeas < 0, l_nonnegativity[:,0], infeas)
 
-    # NOTE removed because we're making it == 1 for all i = 1, ..., D
     # This averages the "derivative" in both directions because of the
     # nondifferentiability of the infeasibility function at 0
     #result[:,0,0] += 0.5 * np.where(mu[:,0,0] < 0, l_nonnegativity[:,0], np.zeros_like(mu[:,0,0]))
