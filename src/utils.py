@@ -586,25 +586,28 @@ def new_gradient(free_vars, lm, coef, powers, gamma, L, D, d):
     # return gradients flattened and concatenated
     return np.concatenate((mu_grad.flatten(), R_grad.flatten()), axis=0)
 
-
-def solver(poly, gamma, L, D, d, max_iter=10):
+#TODO update docstring
+def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
+           seed=1243124242):
     """
-    D is the number of dimensions
-    d is the highest order in polynomial
     L is the number of measures
     rho is the value of penalty term gamma
-    This function will output a global mimimum point of polynomial on [-1,1]^{D} and it's relative error subject to the real minimum value
+    This function will output a global mimimum point of polynomial on
+    [-1,1]^{D} and it's relative error subject to the real minimum value
     Lack a good stop condition and time of running is too long
     """
     coef = poly.coefficients
     powers = poly.powers
 
-    GAMMA_MULTIPLIER = 10
-    eta = 1/4
+    # extract dimension of hypercube by number of x_i variables in polynomial
+    # extract highest degree of a single variable x_i in polynomial
+    D = len(powers[0])
+    powers_array = np.array(powers)
+    d = np.max(powers_array)
 
     # TODO change how this is managed, may be best to use exclusively arrays
     # and not bother with this object
-    free_vars_obj = FreeVariables(L, D, d, seed=1243124242)
+    free_vars_obj = FreeVariables(L, D, d, seed=seed)
     free_vars = free_vars_obj.flattened()
     M_d = free_vars_obj.M_d
 
@@ -621,7 +624,6 @@ def solver(poly, gamma, L, D, d, max_iter=10):
     print('Initial x location = {}'.format(x_min))
 
     for iteration in range(max_iter):
-        #print("-"*40)
         # NOT a partial derivative
         partial_func = partial(new_augmented_lagrangian, lm=lm,
                                coef=coef, powers=powers, gamma=gamma, L=L, D=D,
@@ -668,7 +670,7 @@ def solver(poly, gamma, L, D, d, max_iter=10):
             v_k = v
             print('updated lagrangian')
         else:
-            gamma *= GAMMA_MULTIPLIER
+            gamma *= multiplier
             v_k = v
             print('updated gamma = {}'.format(gamma))
 
