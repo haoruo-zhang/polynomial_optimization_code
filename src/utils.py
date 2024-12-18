@@ -191,7 +191,7 @@ class FreeVariables:
         random = np.random.default_rng(seed) # None will yield OS-selected seed
 
         self.mu = np.array(mu) if mu is not None else random.random(
-                size=(L, D, 2 * d +1)) * 2 - np.ones((L, D, 2*d+1))
+                size=(L, D, 2 * d +1))
         #self.mu = random.random(size=(L, D, 2 * d + 1)) * 2 - np.ones((L, D, 2*d+1))
         self.M_d = np.array([[[[self.mu[l,i,n+m] for n in range(d+1)]
                  for m in range(d+1)]
@@ -359,14 +359,13 @@ def print_new_penalty(mu, M_d, R, gamma, L, D, d):
     # 5. mu_(1,0)^l>=0, so anything positive is clipped
     negatives = jnp.minimum(mu[:,0,0], 0)
     # DEBUGGING
-    print('|nonnegativities| = {}'.format(np.linalg.norm(negatives, ord=1)))
-    print('mu[:,0,0] = {}'.format(mu[:,0,0]))
+    #print('mu[:,0,0] = {}'.format(mu[:,0,0]))
     total += negatives @ negatives
 
     # 6. mu_(i,0)^l - 1 = 0
     diff = mu[:,1:,0].reshape(L, D-1) - jnp.ones((L, D-1))
     # DEBUGGING
-    print('norm(M_d - RRt) = {}'.format(np.linalg.norm(diff.flatten(), ord=1)))
+    print('|mu-1| = {}'.format(np.linalg.norm(diff.flatten(), ord=1)))
     total += jnp.einsum('ij,ij->', diff, diff)
 
     # B.2.1. check that relevant moments have absolute value at most 1
@@ -649,7 +648,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
 
     # TODO change how this is managed, may be best to use exclusively arrays
     # and not bother with this object
-    free_vars_obj = FreeVariables(L, D, d, seed=seed)
+    #free_vars_obj = FreeVariables(L, D, d, seed=seed)
+    free_vars_obj = FreeVariables(L, D, d)
     free_vars = free_vars_obj.flattened()
     M_d = free_vars_obj.M_d
     if verbose:
@@ -669,6 +669,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
     x_min = free_vars_obj.optimal_location()
     if verbose:
         print('Initial x location = {}'.format(x_min))
+        print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.M_d,
+                          gamma, L, D, d)
 
     for iteration in range(max_iter):
         # NOT a partial derivative
@@ -707,8 +709,9 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
             print('Objective value / L = {}'.format(
                 new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
         
-        #print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.M_d,
-        #                  gamma, L, D, d)
+        if verbose:
+            print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.M_d,
+                              gamma, L, D, d)
 
         # Update lm or gamma according to BM paper (note our gamma is their sigma)
         v = (2 / gamma ) * new_penalty(free_vars_obj.mu, free_vars_obj.M_d,
@@ -737,6 +740,7 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
     x_min = free_vars_obj.optimal_location()
     if verbose:
         print('final minimizer = {}'.format(x_min))
+        print('mu = {}'.format(free_vars_obj.mu))
     return x_min
 
 

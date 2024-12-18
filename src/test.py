@@ -1578,21 +1578,33 @@ class TestSolver(unittest.TestCase):
         return
 
     def paper_example_1(self):
-        # TODO is this correct?
-        self.d = 8
-        poly = ExampleF(self.D)
-        solver(poly, self.gamma)
+        D = 2
+        gamma = 100_000
+        poly = ExampleF(D)
+        print(poly.coefficients)
+        print(poly.powers)
+        solver(poly, max_iter=5, gamma=gamma)
         return
 
     def paper_example_2(self):
         D = 4
         gamma = 1_000
         poly = ExampleG(D)
-        minimizer = solver(poly, gamma=gamma, max_iter=5, verbose=False)
+        minimizer = solver(poly, gamma=gamma, max_iter=5, verbose=True)
         truth = -0.75553 * np.ones(4)
         diff = np.linalg.norm(minimizer - truth, ord=1)
         self.assertAlmostEqual(diff, 0, places=2)
         self.assertAlmostEqual(poly.evaluate(minimizer), -1.3911, places=3)
+
+    def experiment_1(self):
+        coefficients = (16, 16, -16, -16, 1)
+        powers = ((2, 0),
+                  (0, 2),
+                  (1, 0),
+                  (0, 1),
+                  (0, 0))
+        poly = PolySupport(coefficients, powers)
+        solver(poly, gamma=1_000)
     
 
 if __name__ == '__main__':
