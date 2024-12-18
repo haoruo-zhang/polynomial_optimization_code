@@ -373,6 +373,7 @@ def print_new_penalty(mu, M_d, R, gamma, L, D, d):
                    jnp.ones((L, D, d+1)), 0)
     total += jnp.einsum('ijk,ijk->', A, A)
 
+    print('penalty = {}'.format((gamma / 2) * total))
     # TODO redundant B.2.2 numerical stability constraint
     return (gamma / 2) * total
 
@@ -710,7 +711,7 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
                 new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
         
         if verbose:
-            print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.M_d,
+            print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.R,
                               gamma, L, D, d)
 
         # Update lm or gamma according to BM paper (note our gamma is their sigma)
