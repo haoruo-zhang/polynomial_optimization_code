@@ -1623,6 +1623,19 @@ class TestSolver(unittest.TestCase):
                   (0,))
         poly = PolySupport(coefficients, powers)
         solver(poly, L=2, gamma=1_000)
+
+    def experiment_4(self):
+        """
+        p(x) = (x^2 - 1/2)^2 + 1
+        minimum should be 1
+        minimizers are x = +- (1 / sqrt(2))
+        """
+        coefficients = (1, -1, 1.25)
+        powers = ((4,),
+                  (2,),
+                  (0,))
+        poly = PolySupport(coefficients, powers)
+        solver(poly, L=2, gamma=1_000)
     
 
 if __name__ == '__main__':
