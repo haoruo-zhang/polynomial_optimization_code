@@ -1615,6 +1615,14 @@ class TestSolver(unittest.TestCase):
                   (0, 0))
         poly = PolySupport(coefficients, powers)
         solver(poly, gamma=1_000)
+
+    def experiment_3(self):
+        coefficients = (1, -2, 0)
+        powers = ((4,),
+                  (2,),
+                  (0,))
+        poly = PolySupport(coefficients, powers)
+        solver(poly, L=2, gamma=1_000)
     
 
 if __name__ == '__main__':
