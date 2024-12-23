@@ -1,10 +1,13 @@
+import copy
 from functools import partial
+import itertools
 import jax.numpy as jnp
 from jax import grad as jaxgrad
 #import numpy.lib.stride_tricks.as_strided as as_strided
 # TODO fix strange thing with attempted import of as_strided alone
 import numpy as np
 import sympy as sp
+from scipy.linalg import block_diag
 from scipy.optimize import minimize
 import torch
 
@@ -28,6 +31,139 @@ class PolySupport:
             total += c * term
 
         return total
+
+class HessianComponent(PolySupport):
+    """
+    Object that represents one component of the Hessian of the objective
+    function (moments version, not original polynomial version).
+    Component is partial{objective}{del mu_{i, a} del mu_{j, b}},
+    For creation, it is agnostic to total L and specific l, and to evaluate we
+    pass it just a single mu^(l).
+    """
+
+    def __init__(self, objective, i, j, a, b):
+        """
+        arguments:
+        objective -- PolySupport object of the objective function
+        i -- index of component measure of "first" partial
+        j -- index of component measure of "second" partial
+        a -- degree of moment of mu_i
+        b -- degree of moment of mu_j
+        """
+
+        self.D = objective.D
+        self.d = objective.d
+
+        self.i = i
+        self.j = j
+        self.a = a
+        self.b = b
+
+        # By construction of the problem, partial w/r/t same moment is always zero
+        if i == j:
+            self.zero = True
+            return
+
+        coef = []
+        powers = []
+        for obj_coef, obj_pow in zip(objective.coefficients, objective.powers):
+            if obj_pow[i] == a and obj_pow[j] == b:
+                coef.append(obj_coef)
+                powers.append(obj_pow)
+
+                # below is old way, removed because it would (I think)
+                # remove our ability to distinguish between actual 0th moments
+                # and removed by differentiation. Nvm, shouldn't be a problem
+                # but still going with above
+                """
+                new_powers = copy.copy(obj_pow)
+                # TODO I want these values to be 1 during evaluation, but it
+                # may instead just plug in the 0th moments for these measures,
+                # which isn't what we want
+                new_powers[i] == 0
+                new_powers[j] == 0
+                powers.append(new_powers)
+                """
+
+        self.coefficients = np.array(coef)
+        self.powers = powers
+
+        # if no terms contain both moments, indicate that this partial is
+        # always zero
+        self.zero = (len(powers) == 0)
+
+    def evaluate(self, mu, l):
+        """
+        arguments:
+        mu -- product measure mu to evaluate mixed partial with
+        l -- which product measure mu^(l) to use
+        """
+        # return 0 if always 0
+        if self.zero:
+            return 0
+
+        # Set up array for calculations
+        # This uses n to signify a tuple of degrees, the paper's notation
+        # Each row corresponds to a term phi_n(mu) in the sum 
+        # The entries are the moments specified by n for each component measure
+        A = np.array([
+            [mu[l,k,n_k] for (k, n_k) in enumerate(n)]
+            for n in self.powers])
+
+        # Set the value of the moments we are differentiating away to 1
+        A[:,self.i] = np.ones(len(self.powers))
+        A[:,self.j] = np.ones(len(self.powers))
+                                
+        # Multiply over the rows (phi), then add up the values, multiplying each
+        # by the relevant coefficient
+        return np.prod(A, axis=1) @ self.coefficients
+
+class Hessian():
+    """
+    Object for evaluating Hessians of a given objective polynomial at
+    whatever moment vectors are passed to it.
+    """
+
+    def __init__(self, objective):
+        """
+        arguments:
+        objective -- PolySupport object of the objective function
+        """
+
+        self.objective = objective
+
+        self.D = objective.D
+        self.d = objective.d
+        
+        # We construct the Hessian agnostic to L, and only use it later when
+        # evaluating it given a moment tensor
+        self.terms = [[[[HessianComponent(
+            objective, i, j, a, b) for b in range(self.d+1)]
+                                   for a in range(self.d+1)]
+                                   for j in range(self.D)]
+                                   for i in range(self.D)]
+
+    def get_term(self, mu, l, i, j, a, b):
+        return self.terms[i][j][a][b].evaluate(mu, l)
+
+    def matrix(self, mu):
+        L = mu.shape[0]                                           
+        # TODO maybe change this indexing? Make it compatible with self.terms
+        D = self.D
+        d = self.d
+        components = np.zeros((L, D, d+1, D, d+1))
+
+        ranges = [
+                range(L),
+                range(D),
+                range(d+1),
+                range(D),
+                range(d+1)]
+        for l, i, a, j, b in itertools.product(*ranges):
+            components[l, i, a, j, b] = self.get_term(mu, l, i, j, a, b)
+
+        reshaped = np.reshape(components, (L, D*(d+1), D*(d+1)))
+        return block_diag(*reshaped)
 
 class ExampleF(PolySupport):
     """
@@ -742,6 +878,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
     if verbose:
         print('final minimizer = {}'.format(x_min))
         print('mu = {}'.format(free_vars_obj.mu))
+        np.save('mu.npy', free_vars_obj.mu)
+
     return x_min
 
 

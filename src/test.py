@@ -1637,6 +1637,21 @@ class TestSolver(unittest.TestCase):
         poly = PolySupport(coefficients, powers)
         solver(poly, L=2, gamma=1_000)
     
+class TestHessian(unittest.TestCase):
+    def test_1(self):
+        L = 2
+        D = 1
+        d = 4
+
+        coefficients = (1, -2)
+        powers = ((4,),
+                  (2,))
+        poly = PolySupport(coefficients, powers)
+        mu = np.load('hessian_test_1.npy')
+        hessian = Hessian(poly)
+
+        matrix = hessian.matrix(mu[:,:,:d+1])
+        self.assertTrue(np.isclose(matrix, np.zeros((L*D*(d+1), L*D*(d+1)))).all())
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
