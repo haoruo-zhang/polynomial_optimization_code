@@ -71,20 +71,6 @@ class HessianComponent(PolySupport):
                 coef.append(obj_coef)
                 powers.append(obj_pow)
 
-                # below is old way, removed because it would (I think)
-                # remove our ability to distinguish between actual 0th moments
-                # and removed by differentiation. Nvm, shouldn't be a problem
-                # but still going with above
-                """
-                new_powers = copy.copy(obj_pow)
-                # TODO I want these values to be 1 during evaluation, but it
-                # may instead just plug in the 0th moments for these measures,
-                # which isn't what we want
-                new_powers[i] == 0
-                new_powers[j] == 0
-                powers.append(new_powers)
-                """
-
         self.coefficients = np.array(coef)
         self.powers = powers
 
