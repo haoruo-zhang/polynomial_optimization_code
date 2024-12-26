@@ -1654,19 +1654,39 @@ class TestHessian(unittest.TestCase):
         self.assertTrue(np.isclose(matrix, np.zeros((L*D*(d+1), L*D*(d+1)))).all())
 
     def test_2(self):
-        L = 2
-        D = 1
+        L = 6
+        D = 4
         d = 4
 
-        coefficients = (1, -2)
-        powers = ((4,),
-                  (2,))
-        poly = PolySupport(coefficients, powers)
-        mu = np.load('hessian_test_1.npy')
+        poly = ExampleG(D)
+        mu = np.load('hessian_test_2.npy')
         hessian = Hessian(poly)
 
         matrix = hessian.matrix(mu[:,:,:d+1])
-        self.assertTrue(np.isclose(matrix, np.zeros((L*D*(d+1), L*D*(d+1)))).all())
+        # test some matrix entries of interest in l = 1 block
+        # \del^2 mu_{1,4;2,0}
+        self.assertTrue(np.isclose(matrix[4,2*(d+1)], 2, rtol=1e-3))
+        # \del^2 mu_{1,2;2,0}
+        self.assertTrue(np.isclose(matrix[2,2*(d+1)], -2.070815, rtol=1e-3))
+        # \del^2 mu_{2,3;3,0}
+        self.assertTrue(np.isclose(matrix[(d+1)+3,3*(d+1)], 0.015625, rtol=1e-3))
+        # \del^2 mu_{4,2;3,1}
+        self.assertTrue(np.isclose(matrix[3*(d+1)+2,2*(d+1)+1], 0.046875, rtol=1e-3))
+        # \del^2 mu_{3,0;4,0}
+        self.assertTrue(np.isclose(matrix[2*(d+1),3*(d+1)], -0.034, rtol=1e-3))
+
+        # now a few entries that should be zero
+        # the diagonal should be all zeros
+        diag = np.diagonal(matrix)
+        zeros = np.zeros_like(diag)
+        self.assertTrue(np.equal(diag, zeros).all())
+
+        # \del^2 mu_{1,3;2,1}
+        self.assertEqual(matrix[3,(d+1) + 1], 0)
+        # \del^2 mu_{4,2;1,2}
+        self.assertEqual(matrix[3*(d+1)+2, 2], 0)
+        # \del^2 mu_{1,4;3,4}
+        self.assertEqual(matrix[4,2*(d+1)+4], 0)
 
 
 if __name__ == '__main__':
