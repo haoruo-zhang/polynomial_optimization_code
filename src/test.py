@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 import unittest
 from utils import *
 
@@ -1687,6 +1688,22 @@ class TestHessian(unittest.TestCase):
         self.assertEqual(matrix[3*(d+1)+2, 2], 0)
         # \del^2 mu_{1,4;3,4}
         self.assertEqual(matrix[4,2*(d+1)+4], 0)
+
+    def test_2_decomposition(self):
+        L = 6
+        D = 4
+        d = 4
+
+        poly = ExampleG(D)
+        mu = np.load('hessian_test_2.npy')
+        print(mu[0,:,:])
+        hessian = Hessian(poly)
+
+        matrix = hessian.matrix(mu[:,:,:d+1])
+        block = matrix[:D*(d+1), :D*(d+1)]
+        evalues, evectors = np.linalg.eigh(block) 
+        v = evectors[:,0]
+        print(np.reshape(v, (D, d+1)))
 
 
 if __name__ == '__main__':
