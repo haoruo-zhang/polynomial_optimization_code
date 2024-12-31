@@ -7,7 +7,7 @@ from jax import grad as jaxgrad
 # TODO fix strange thing with attempted import of as_strided alone
 import numpy as np
 import sympy as sp
-from scipy.linalg import block_diag
+from scipy.linalg import block_diag, hankel
 from scipy.optimize import minimize
 import torch
 
@@ -926,6 +926,29 @@ def generate_M_d(x_mu_D_L_list,d,D,L):
             M_D_L_matrix = x_mu_D_L_list[q][l][i + j]
             x_M_D_L_list[q].append(M_D_L_matrix)
     return jnp.array(x_M_D_L_list)
+
+def construct_matrix(mu):
+    d = int(np.floor(mu.shape[0] / 2))
+    c = mu[:d+1]
+    r = mu[d:]
+    M_d = hankel(c, r=r)
+    return M_d
+
+def test_psd(matrix, epsilon = 1e-3):
+    evalues, evectors = np.linalg.eigh(matrix) 
+    return np.all(evalues >= -1 * epsilon)
+
+def test_feasible(mu, epsilon = 1e-3):
+    if np.abs(mu[0] - 1) > epsilon:
+        return False
+
+    d = int(np.floor(mu.shape[0] / 2))
+    ones = np.ones(d)
+    if np.any(np.abs(mu[:d]) - ones > epsilon):
+        return False
+
+    return test_psd(construct_matrix(mu))
+
 
 # Def the function of B.3
 def Augmented_Lagrangian(x_input,d,D,L,orders_list,coefficients_list,Lagrangian_coefficient,rho):

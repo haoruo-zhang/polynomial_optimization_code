@@ -1705,6 +1705,45 @@ class TestHessian(unittest.TestCase):
         v = evectors[:,0]
         print(np.reshape(v, (D, d+1)))
 
+class TestCritical(unittest.TestCase):
+    def experiment_1(self):
+        L = 2
+        D = 1
+        d = 4
+
+        coefficients = (1, -2, 0)
+        powers = ((4,),
+                  (2,),
+                  (0,))
+        poly = PolySupport(coefficients, powers)
+
+        # load minimizer mu from previous run of solver
+        mu = np.load('critical_experiment_1.npy')
+        
+        hessian = Hessian(poly)
+        matrix = hessian.matrix(mu[:,:,:d+1])
+
+        # the Hessian should be all zeros because D = 1
+        zeros = np.zeros_like(matrix)
+        self.assertTrue(np.equal(matrix, zeros).all())
+
+class TestFeasible(unittest.TestCase):
+    """
+    Tests for functions to evaluate feasibility of mu vectors
+    """
+    def test_1(self):
+        t_values = np.linspace(-1.5, 1.5, 31)
+        for t in t_values:
+             mu = np.ones(9)
+             mu[1] = t
+             mu[3] = t
+             mu[5] = t
+             mu[7] = t
+             if np.abs(t) <= 1:
+                 self.assertTrue(test_feasible(mu))
+             else:
+                 self.assertFalse(test_feasible(mu))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
