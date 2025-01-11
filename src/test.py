@@ -1637,6 +1637,21 @@ class TestSolver(unittest.TestCase):
                   (0,))
         poly = PolySupport(coefficients, powers)
         solver(poly, L=2, gamma=1_000)
+
+    def experiment_5(self):
+        """
+        Testing if solver will converge to a unique solution when the polynomial
+        HAS two distinct minimizers BUT convex combinations of their delta distributions
+        are not product measures
+        """
+        coefficients = (1, 1, 2, -2, 0.25)
+        powers = ((4, 0),
+                  (0, 4),
+                  (2, 2),
+                  (1, 1),
+                  (0, 0))
+        poly = PolySupport(coefficients, powers)
+        solver(poly, gamma=1_000, seed=None)
     
 class TestHessian(unittest.TestCase):
     def test_1(self):
