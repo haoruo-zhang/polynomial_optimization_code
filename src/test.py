@@ -1734,6 +1734,7 @@ class TestCritical(unittest.TestCase):
 
         # load minimizer mu from previous run of solver
         mu = np.load('critical_experiment_1.npy')
+        print(mu)
         
         hessian = Hessian(poly)
         matrix = hessian.matrix(mu[:,:,:d+1])

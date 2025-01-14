@@ -928,6 +928,9 @@ def generate_M_d(x_mu_D_L_list,d,D,L):
     return jnp.array(x_M_D_L_list)
 
 def construct_matrix(mu):
+    """
+    Make sure mu is truly 1-D when passed to this
+    """
     d = int(np.floor(mu.shape[0] / 2))
     c = mu[:d+1]
     r = mu[d:]
@@ -948,6 +951,33 @@ def test_feasible(mu, epsilon = 1e-3):
         return False
 
     return test_psd(construct_matrix(mu))
+
+def non_psd_perturbation(matrix, epsilon = 1e-3):
+    """
+    Return a matrix whose sum with the given matrix (assumed PSD) is not PSD
+    """
+    evalues, evectors = np.linalg.eigh(matrix) 
+    if np.min(evalues) > epsilon:
+        raise ValueError('matrix has no 0 eigenvalues i.e. is in interior of PSD cone')
+    elif np.min(evalues) < -1 * epsilon:
+        raise ValueError('matrix has negative eigenvalues i.e. is not in PSD cone')
+
+    perturbation = np.zeros_like(matrix)
+    for lm, v in zip(evalues, evectors.T):
+        if np.abs(lm) < epsilon:
+            normalized = v / np.linalg.norm(v)
+            perturbation += -1 * np.outer(normalized, normalized)
+
+    return perturbation
+
+def ortho_hankel(d, k):
+    mu = np.zeros(2*d+1)
+    if k <= d:
+        i = k+1
+    else:
+        i = 2*d +1 - k
+    mu[k] = 1 / np.sqrt(i)
+    return construct_matrix(mu)
 
 
 # Def the function of B.3
