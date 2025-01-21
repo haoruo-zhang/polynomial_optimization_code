@@ -1652,6 +1652,28 @@ class TestSolver(unittest.TestCase):
                   (0, 0))
         poly = PolySupport(coefficients, powers)
         solver(poly, gamma=1_000, seed=None)
+
+    def experiment_6(self):
+        """
+        Testing the solver with an objective with two completely unrelated
+        global minimizers
+        """
+        coefficients = (32, -16, 64, -48, 12, -16, 16, -4, 32, -48, 28, -8, 1)
+        powers = ((4, 0),
+                  (3, 0),
+                  (2, 2),
+                  (2, 1),
+                  (2, 0),
+                  (1, 2),
+                  (1, 1),
+                  (1, 0),
+                  (0, 4),
+                  (0, 3),
+                  (0, 2),
+                  (0, 1),
+                  (0, 0))
+        poly = PolySupport(coefficients, powers)
+        solver(poly, gamma=1_000, seed=None)
     
 class TestHessian(unittest.TestCase):
     def test_1(self):
