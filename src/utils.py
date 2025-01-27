@@ -952,6 +952,25 @@ def test_feasible(mu, epsilon = 1e-3):
 
     return test_psd(construct_matrix(mu))
 
+def test_feasible_direction(mu, perturbation, max_iter=4, epsilon = 1e-3):
+    """
+    Normalizes perturbation direction, returns largest power of 10 t for
+    which mu + t * v is still feasible
+    """
+    if not test_feasible(mu, epsilon):
+        print('given matrix is not feasible')
+        return
+
+    v = perturbation / np.linalg.norm(perturbation)
+    t = 1
+    for i in range(max_iter):
+        if test_feasible(mu + t * v, epsilon):
+            return (True, i)
+        t = t / 10
+    
+    return (False, max_iter)
+
+
 def non_psd_perturbation(matrix, epsilon = 1e-3):
     """
     Return a matrix whose sum with the given matrix (assumed PSD) is not PSD

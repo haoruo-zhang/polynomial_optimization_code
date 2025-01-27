@@ -1765,6 +1765,37 @@ class TestCritical(unittest.TestCase):
         zeros = np.zeros_like(matrix)
         self.assertTrue(np.equal(matrix, zeros).all())
 
+    def experiment_2(self):
+        L = 2
+        D = 2
+        d = 5
+
+        coefficients = (0.1, 0.1, 1, 1, -1/2, -1/2, 1/8)
+        powers = ((5,0),
+                  (0,5),
+                  (4,0),
+                  (0,4),
+                  (2,0),
+                  (0,2),
+                  (0,0))
+        poly = PolySupport(coefficients, powers)
+
+        x_min = solver(poly, L=L, gamma=1_000, seed=None)
+        print(x_min)
+
+    def experiment_3(self):
+        L = 2
+        D = 2
+        d = 3
+
+        coefficients = (1, 1, 1)
+        powers = ((1,3),
+                  (2,2),
+                  (3,1))
+        poly = PolySupport(coefficients, powers)
+
+        x_min = solver(poly, L=L, gamma=1_000, seed=None)
+
 class TestFeasible(unittest.TestCase):
     """
     Tests for functions to evaluate feasibility of mu vectors
