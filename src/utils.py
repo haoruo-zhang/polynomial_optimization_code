@@ -965,11 +965,74 @@ def test_feasible_direction(mu, perturbation, max_iter=4, epsilon = 1e-3):
     t = 1
     for i in range(max_iter):
         if test_feasible(mu + t * v, epsilon):
-            return (True, i)
+            return (True, t)
         t = t / 10
     
-    return (False, max_iter)
+    return (False, t)
 
+def project_hankel(matrix):
+    """
+    Returns a copy of square matrix projected onto space of Hankel matrices
+    """
+    n = matrix.shape[0]
+    copy = np.copy(matrix)
+    flipped = np.fliplr(copy)
+    for k in range(-n+1, n):
+        antidiagonal = np.diagonal(flipped, offset=k)
+        mean = np.mean(antidiagonal)
+        for i in range(n):
+            j = i + k
+            if 0 <= j and j < n:
+                flipped[i,j] = mean
+
+    return copy
+
+def project_C_1(matrix):
+    """
+    Projects the matrix onto the space of Hankel matrices with
+    entries between -1 and 1 and mu_0 == 1
+    """
+    proj = project_hankel(matrix)
+    proj[0,0] = 1
+    np.clip(proj, a_min=-1, a_max=1, out=proj)
+    return proj
+
+def project_C_2(matrix):
+    """
+    Project the symmetric matrix onto the PSD cone
+    """
+    evalues, evectors = np.linalg.eigh(matrix)
+    proj = np.zeros_like(matrix)
+    for lm, v in zip(evalues, evectors.T):
+        if lm > 0:
+            proj += lm * np.outer(v, v)
+
+    return proj
+
+
+def dykstra(matrix, f=project_C_1, g=project_C_2, max_iter=1_000, epsilon=1e-3):
+    """
+    Calculate the projection of matrix onto the intersection of two convex sets C_1, C_2,
+    given functions f and g which project a symmetric matrix onto them respectively.
+    """
+    h_t = matrix
+    p_t = np.zeros_like(matrix)
+    q_t = np.zeros_like(matrix)
+    for i in range(max_iter):
+        y_t = f(h_t + p_t)
+        h_next = g(y_t + q_t)
+        p_t += h_t - y_t
+        q_t += y_t - h_next
+
+        if (np.linalg.norm(y_t - h_t, ord='fro') < epsilon and
+            np.linalg.norm(y_t - h_next, ord='fro') < epsilon):
+            print('iteration = {}'.format(i))
+            return y_t
+
+        h_t = h_next
+
+    print('went beyond max_iter')
+    return y_t
 
 def non_psd_perturbation(matrix, epsilon = 1e-3):
     """
