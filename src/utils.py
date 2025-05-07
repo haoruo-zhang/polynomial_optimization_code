@@ -865,8 +865,14 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
                         method='L-BFGS-B',
                         jac=partial_grad,
                         options={
-                            'gtol': 1e-5,             # Stopping criterion (relative gradient)
-                            'ftol': 1e-7,             # Stopping criterion (absolute value)
+                            #'gtol': 1e-5,             # Stopping criterion (relative gradient)
+                            #'ftol': 1e-7,             # Stopping criterion (absolute value)
+                            # better tols
+                            #'gtol': 1e-6,             # Stopping criterion (relative gradient)
+                            #'ftol': 1e-9,             # Stopping criterion (absolute value)
+                            # best tols
+                            'gtol': 1e-7,             # Stopping criterion (relative gradient)
+                            'ftol': 1e-11,             # Stopping criterion (absolute value)
                             'maxcor': 40,             # The order of the approximation Hessian
                         })
         
@@ -919,8 +925,10 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
             print('current recovered minimizer = {}'.format(x_min))
 
         # break if feasible enough and objective hasn't moved much
-        if v_k < 1e-8 and np.abs(cur_obj - prev_obj) < epsilon:
-            print('breaking out of loop')
+        if (np.linalg.norm(partial_grad(free_vars)) / (L*D*d*d) < 1e-1 and v_k < 1e-8 and
+            np.abs(cur_obj - prev_obj) < epsilon):
+            if verbose:
+                print('breaking out of loop')
             break
 
     x_min = free_vars_obj.optimal_location()
@@ -929,6 +937,7 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         print('mu = {}'.format(free_vars_obj.mu))
         np.save('mu.npy', free_vars_obj.mu)
 
+    print('number of iterations = {}'.format(iteration))
     return (x_min, cur_obj)
 
 
