@@ -10,6 +10,7 @@ import sympy as sp
 from scipy.linalg import block_diag, hankel
 from scipy.optimize import minimize
 import torch
+import itertools
 
 # The support of the polynomial objective function
 # coefficients - real-valued p_n for each monomial term
@@ -225,6 +226,59 @@ class ExampleG(PolySupport):
 
         super().__init__(coefficients, powers)
 
+class PlotPoly(PolySupport):
+    """
+    Generates the polynomial $g_D(x)$ from example 3.2 in Letourneau paper, in
+    given dimension D
+    """
+    def __init__(self, D):
+        # define variable x_1, x_2, ..., x_D
+        x = sp.symbols(f'x1:{D+1}')
+
+        powers = tuple(itertools.product((2, 4, 6), repeat=D))
+        #for term in powers:
+        #    print(term)
+        a = [power.count(2) for power in powers]
+        b = [power.count(4) for power in powers]
+        c = [power.count(6) for power in powers]
+        # check they all have same total of powers
+        #for i in range(len(powers)):
+        #    print(a[i] + b[i] + c[i])
+        exponents = np.array((a, b, c)).T
+        base = np.array([9 / 512.0, -25.0 / 256, 1.0 / 6])
+        raised = np.power(base, exponents)
+        #print(np.concatenate((exponents, raised), axis=1))
+        coefficients = np.prod(raised, axis=1)
+        coefficients = np.expand_dims(coefficients, axis=1)
+        #print(np.concatenate((exponents, coefficients), axis=1))
+        #print(coefficients)
+        #print(powers)
+        #print(coefficients.shape)
+
+        super().__init__(coefficients, powers)
+
+class PlotPolySum(PolySupport):
+    """
+    Generates the polynomial $g_D(x)$ from example 3.2 in Letourneau paper, in
+    given dimension D
+    """
+    def __init__(self, D):
+        # define variable x_1, x_2, ..., x_D
+        x = sp.symbols(f'x1:{D+1}')
+
+        #base = 100 * np.array([9 / 512.0, -25.0 / 256, 1.0 / 6])
+        base = 10 * np.array([9 / 512.0, -25.0 / 256, 1.0 / 6])
+        power_mask = np.array([2, 4, 6]).T
+        powers = np.zeros((3*D, D), dtype=int)
+        coefficients = np.zeros((3*D,))
+        for i in range(D):
+            powers[3*i:3*i+3,i] = power_mask
+            coefficients[3*i:3*i+3] = base.T
+
+        super().__init__(coefficients, powers)
+
+
+
 
 # Define Lagrange multipliers structure, shaped to match up with the
 # different matrices for which it is penalizing constraints.
@@ -314,7 +368,6 @@ class FreeVariables:
 
         self.mu = np.array(mu) if mu is not None else random.random(
                 size=(L, D, 2 * d +1))
-        #self.mu = random.random(size=(L, D, 2 * d + 1)) * 2 - np.ones((L, D, 2*d+1))
         self.M_d = np.array([[[[self.mu[l,i,n+m] for n in range(d+1)]
                  for m in range(d+1)]
                  for i in range(D)]
@@ -752,12 +805,13 @@ def new_gradient(free_vars, lm, coef, powers, gamma, L, D, d):
 
 #TODO update docstring
 def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
-           seed=1243124242, verbose=True):
+           epsilon=1e-6, initial_mu=None, initial_R=None, seed=1243124242, verbose=True):
     """
     L is the number of measures
     rho is the value of penalty term gamma
     This function will output a global mimimum point of polynomial on
     [-1,1]^{D} and it's relative error subject to the real minimum value
+    epsilon is for stopping condition
     Lack a good stop condition and time of running is too long
     """
     coef = poly.coefficients
@@ -767,12 +821,12 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
     # extract highest degree of a single variable x_i in polynomial
     D = len(powers[0])
     powers_array = np.array(powers)
-    d = np.max(powers_array)
+    d = int(np.max(powers_array)) # in weird case where we generated powers with numpy
 
     # TODO change how this is managed, may be best to use exclusively arrays
     # and not bother with this object
     #free_vars_obj = FreeVariables(L, D, d, seed=seed)
-    free_vars_obj = FreeVariables(L, D, d)
+    free_vars_obj = FreeVariables(L, D, d, mu=initial_mu, R=initial_R)
     free_vars = free_vars_obj.flattened()
     M_d = free_vars_obj.M_d
     if verbose:
@@ -794,6 +848,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         print('Initial x location = {}'.format(x_min))
         print_new_penalty(free_vars_obj.mu, free_vars_obj.M_d, free_vars_obj.M_d,
                           gamma, L, D, d)
+
+    cur_obj = 1e8 # start out objective at very high value
 
     for iteration in range(max_iter):
         # NOT a partial derivative
@@ -828,6 +884,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         free_vars_obj.mu = np.reshape(np.copy(free_vars[:mu_size]), (L, D, 2*d+1))
         free_vars_obj.R = np.reshape(np.copy(free_vars[mu_size:]), (L, D, d+1, d+1))
         free_vars_obj.update_M_d()
+        prev_obj = cur_obj
+        cur_obj = new_objective(free_vars_obj.mu, coef, powers, L, D) / L
         if verbose:
             print('Objective value / L = {}'.format(
                 new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
@@ -860,13 +918,18 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         if verbose:
             print('current recovered minimizer = {}'.format(x_min))
 
+        # break if feasible enough and objective hasn't moved much
+        if v_k < 1e-8 and np.abs(cur_obj - prev_obj) < epsilon:
+            print('breaking out of loop')
+            break
+
     x_min = free_vars_obj.optimal_location()
     if verbose:
         print('final minimizer = {}'.format(x_min))
         print('mu = {}'.format(free_vars_obj.mu))
         np.save('mu.npy', free_vars_obj.mu)
 
-    return x_min
+    return (x_min, cur_obj)
 
 
 # This funciton is for restoring the matrix: x_0_M_D_L+x_1_M_D_L+x_0_R_L+x_1_R_L+x_0_M_D_1_L+x_1_M_D_1_L+x_0_S_L+x_1_S_L from the flattened x

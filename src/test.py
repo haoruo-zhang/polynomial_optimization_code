@@ -1580,7 +1580,8 @@ class TestSolver(unittest.TestCase):
 
     def paper_example_1(self):
         D = 2
-        gamma = 100_000
+        #gamma = 100_000
+        gamma = 1_000
         poly = ExampleF(D)
         print(poly.coefficients)
         print(poly.powers)
@@ -1812,6 +1813,15 @@ class TestFeasible(unittest.TestCase):
                  self.assertTrue(test_feasible(mu))
              else:
                  self.assertFalse(test_feasible(mu))
+
+class TestPlots(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_1(self):
+        dimensions = [1,]
+        for D in dimensions:
+            poly = PlotPoly(D)
 
 
 if __name__ == '__main__':
