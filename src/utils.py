@@ -925,7 +925,10 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
             print('current recovered minimizer = {}'.format(x_min))
 
         # break if feasible enough and objective hasn't moved much
-        if (np.linalg.norm(partial_grad(free_vars)) / (L*D*d*d) < 1e-1 and v_k < 1e-8 and
+        #if (np.linalg.norm(partial_grad(free_vars)) / (L*D*d*d) < 1e-1 and v_k < 1e-8 and
+        #    np.abs(cur_obj - prev_obj) < epsilon):
+        # remove gradient one for now
+        if (True and v_k < 1e-10 and
             np.abs(cur_obj - prev_obj) < epsilon):
             if verbose:
                 print('breaking out of loop')
