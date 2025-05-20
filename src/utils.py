@@ -882,6 +882,7 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
             #print("Was the optimization successful?", result.success)
             print("Number of L-BFGS iterations:", result.nit)
             #print(result.message)
+        print("Number of L-BFGS iterations:", result.nit)
 
         # update free variables and our object tracking them
         old_free_vars = np.copy(free_vars)
@@ -892,6 +893,8 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         free_vars_obj.update_M_d()
         prev_obj = cur_obj
         cur_obj = new_objective(free_vars_obj.mu, coef, powers, L, D) / L
+        print('Objective value / L = {}'.format(
+            new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
         if verbose:
             print('Objective value / L = {}'.format(
                 new_objective(free_vars_obj.mu, coef, powers, L, D) / L))
@@ -928,19 +931,21 @@ def solver(poly, L=6, max_iter=10, gamma=10, multiplier=10, eta=0.25,
         #if (np.linalg.norm(partial_grad(free_vars)) / (L*D*d*d) < 1e-1 and v_k < 1e-8 and
         #    np.abs(cur_obj - prev_obj) < epsilon):
         # remove gradient one for now
-        if (True and v_k < 1e-10 and
+        if (True and v_k < 1e-8 and
             np.abs(cur_obj - prev_obj) < epsilon):
-            if verbose:
-                print('breaking out of loop')
+            print('D = {} breaking out of loop'.format(D))
+            #if verbose:
+                #print('breaking out of loop')
             break
 
     x_min = free_vars_obj.optimal_location()
     if verbose:
         print('final minimizer = {}'.format(x_min))
         print('mu = {}'.format(free_vars_obj.mu))
-        np.save('mu.npy', free_vars_obj.mu)
+        #np.save('mu.npy', free_vars_obj.mu)
 
     print('number of iterations = {}'.format(iteration))
+    np.save('mu_{}.npy'.format(D), free_vars_obj.mu)
     return (x_min, cur_obj)
 
 

@@ -14,6 +14,8 @@ random = np.random.default_rng(seed=23491)
 objective_values = np.zeros((10,10))
 for D in [1, 2, 3, 4, 5, 6]:
     print('\nD = {}'.format(D))
+    #stepsize = 1e-2
+    #max_iter = 100_000
     stepsize = 1e-1
     max_iter = 1_000
     epsilon = 1e-10 * np.sqrt(D)
@@ -40,7 +42,7 @@ for D in [1, 2, 3, 4, 5, 6]:
 
 
 print(objective_values)
-np.save('gd_objective_values.npy', objective_values)
+np.save('exp_gd_objective_values.npy', objective_values)
 #print(poly(np.array([0.4, 0.001, -0.2]).T))
 #print(poly(np.array([1, 1, 1]).T))
 #print(grad(np.array([0.4, 0.001, -0.2]).T))
