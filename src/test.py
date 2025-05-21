@@ -248,7 +248,6 @@ class TestObjectiveGradient(unittest.TestCase):
                                           L, D, d)
         self.assertTrue(np.isclose(old_result, hardcoded_result).all())
 
-
 class TestMultiplierGradient(unittest.TestCase):
     def setUp(self):
         L = 2
@@ -1822,6 +1821,56 @@ class TestPlots(unittest.TestCase):
         dimensions = [1,]
         for D in dimensions:
             poly = PlotPoly(D)
+
+class TestDescent(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_1(self):
+        L = 2
+        D = 2
+        poly = ExampleG(D)
+        d = poly.d
+
+        alpha = 0.1 # stepsize
+        max_iter = 1_000
+        #max_iter = 10_000
+        epsilon = 1e-7 * np.sqrt(D)
+
+        random = np.random.default_rng(seed=20433)
+        #matrix = random.normal(size=(L, D, d+1, d+1))
+        mu = random.normal(size=(L, D, 2*d+1))
+
+        for i in range(max_iter):
+            if i % 100 == 0 or i > max_iter - 10:
+                print('\ni = {}'.format(i))
+            gradient = grad_objective(mu, poly.coefficients, poly.powers, L, D, d)
+            if i % 100 == 0 or i > max_iter - 10:
+                print('mu_i = {}'.format(mu))
+            step_mu = mu - alpha * gradient
+            for l in range(L):
+                for j in range(D):
+                    step_matrix = construct_matrix(step_mu[l,j,:])
+                    projected_matrix = dykstra(step_matrix)
+                    mu[l,j,:] = construct_mu(projected_matrix)
+
+            if i % 100 == 0 or i > max_iter - 10:
+                print('grad = {}'.format(gradient))
+                print('step_mu = {}'.format(step_mu))
+                print('mu_(i+1) = {}'.format(mu))
+                print(new_objective(mu, poly.coefficients, poly.powers, L, D) / L)
+
+            # termination condition
+            #if np.linalg.norm(direction) < epsilon:
+            #    print('termination condition satisfied')
+            #    break
+
+        np.save('mu.npy', mu)
+        print('final mu = {}\nphi(mu) = {}'.format(mu, new_objective(mu,
+                                                                     poly.coefficients,
+                                                                     poly.powers,
+                                                                     L, D) / L))
+        #objective_values[D-1,n] = poly(x)
 
 
 if __name__ == '__main__':

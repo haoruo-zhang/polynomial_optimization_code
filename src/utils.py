@@ -1017,11 +1017,15 @@ def construct_matrix(mu):
     M_d = hankel(c, r=r)
     return M_d
 
-def test_psd(matrix, epsilon = 1e-3):
+def test_psd(matrix, epsilon = 1e-4):
     evalues, evectors = np.linalg.eigh(matrix) 
     return np.all(evalues >= -1 * epsilon)
 
-def test_feasible(mu, epsilon = 1e-3):
+def construct_mu(matrix):
+    d = matrix.shape[0] - 1
+    return np.concatenate((matrix[0,:], matrix[1:,d].T))
+
+def test_feasible(mu, epsilon = 1e-4):
     if np.abs(mu[0] - 1) > epsilon:
         return False
 
@@ -1084,13 +1088,13 @@ def project_C_2(matrix):
     evalues, evectors = np.linalg.eigh(matrix)
     proj = np.zeros_like(matrix)
     for lm, v in zip(evalues, evectors.T):
-        if lm > 0:
+        if lm >= 0:
             proj += lm * np.outer(v, v)
 
     return proj
 
 
-def dykstra(matrix, f=project_C_1, g=project_C_2, max_iter=1_000, epsilon=1e-3):
+def dykstra(matrix, f=project_C_1, g=project_C_2, max_iter=1_000, epsilon=1e-4):
     """
     Calculate the projection of matrix onto the intersection of two convex sets C_1, C_2,
     given functions f and g which project a symmetric matrix onto them respectively.
@@ -1106,15 +1110,13 @@ def dykstra(matrix, f=project_C_1, g=project_C_2, max_iter=1_000, epsilon=1e-3):
 
         if (np.linalg.norm(y_t - h_t, ord='fro') < epsilon and
             np.linalg.norm(y_t - h_next, ord='fro') < epsilon):
-            print('iteration = {}'.format(i))
             return y_t
 
         h_t = h_next
 
-    print('went beyond max_iter')
     return y_t
 
-def non_psd_perturbation(matrix, epsilon = 1e-3):
+def non_psd_perturbation(matrix, epsilon = 1e-4):
     """
     Return a matrix whose sum with the given matrix (assumed PSD) is not PSD
     """
