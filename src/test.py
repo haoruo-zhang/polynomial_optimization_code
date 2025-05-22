@@ -1591,8 +1591,8 @@ class TestSolver(unittest.TestCase):
         D = 4
         gamma = 1_000
         poly = ExampleG(D)
-        minimizer = solver(poly, gamma=gamma, max_iter=5, verbose=True)
-        truth = -0.75553 * np.ones(4)
+        minimizer, obj_value = solver(poly, gamma=gamma, max_iter=5, verbose=True)
+        truth = -0.75553 * np.ones(D)
         diff = np.linalg.norm(minimizer - truth, ord=1)
         self.assertAlmostEqual(diff, 0, places=2)
         self.assertAlmostEqual(poly.evaluate(minimizer), -1.3911, places=3)
@@ -1827,43 +1827,58 @@ class TestDescent(unittest.TestCase):
         pass
 
     def test_1(self):
-        L = 2
-        D = 2
-        poly = ExampleG(D)
+        L = 4
+        D = 8
+        #poly = ExampleG(D)
+        poly = PlotPolySum(D)
         d = poly.d
 
         alpha = 0.1 # stepsize
-        max_iter = 1_000
-        #max_iter = 10_000
-        epsilon = 1e-7 * np.sqrt(D)
+        #max_iter = 1_000
+        max_iter = 200
+        epsilon = 1e-3
 
         random = np.random.default_rng(seed=20433)
         #matrix = random.normal(size=(L, D, d+1, d+1))
-        mu = random.normal(size=(L, D, 2*d+1))
+        #mu = random.normal(size=(L, D, 2*d+1))
+        mu = random.uniform(low=-1.0, high=1.0, size=(L, D, 2*d+1))
+        #prev = mu[0,0,2*d]
 
         for i in range(max_iter):
-            if i % 100 == 0 or i > max_iter - 10:
+            if i % 10 == 0 or i > max_iter - 10:
                 print('\ni = {}'.format(i))
             gradient = grad_objective(mu, poly.coefficients, poly.powers, L, D, d)
-            if i % 100 == 0 or i > max_iter - 10:
+            gradient[:,:,0] = np.zeros((L, D))
+            if i % 10 == 0 or i > max_iter - 10:
                 print('mu_i = {}'.format(mu))
             step_mu = mu - alpha * gradient
             for l in range(L):
                 for j in range(D):
                     step_matrix = construct_matrix(step_mu[l,j,:])
-                    projected_matrix = dykstra(step_matrix)
+                    #projected_matrix = dykstra(step_matrix)
+                    projected_matrix = alternating(step_matrix)
+                    if i == 0 and l == 0 and j == 0:
+                        print('PROJECT')
+                        print(projected_matrix)
+                        np.save('projected.npy', projected_matrix)
+                        np.save('step_mu.npy', step_mu)
                     mu[l,j,:] = construct_mu(projected_matrix)
 
-            if i % 100 == 0 or i > max_iter - 10:
+            if i % 10 == 0 or i > max_iter - 10:
                 print('grad = {}'.format(gradient))
                 print('step_mu = {}'.format(step_mu))
                 print('mu_(i+1) = {}'.format(mu))
                 print(new_objective(mu, poly.coefficients, poly.powers, L, D) / L)
 
-            # termination condition
-            #if np.linalg.norm(direction) < epsilon:
-            #    print('termination condition satisfied')
-            #    break
+            #cur = mu[0,0,2*d]
+            #if np.abs(cur - 1) < 0.01 and np.abs(prev - 1) > 0.01:
+            #    print('CHANGE AT i = {}'.format(i))
+            #prev = cur
+
+            magnitude = jnp.sum(gradient * gradient)
+            if magnitude < epsilon * (L * L) * (D * D) * d:
+                print('break at i = {}'.format(i))
+                break
 
         np.save('mu.npy', mu)
         print('final mu = {}\nphi(mu) = {}'.format(mu, new_objective(mu,
@@ -1871,6 +1886,25 @@ class TestDescent(unittest.TestCase):
                                                                      poly.powers,
                                                                      L, D) / L))
         #objective_values[D-1,n] = poly(x)
+
+    def test_2(self):
+        L = 4
+        dimensions = [2, 3, 4]
+        runs = 5
+        obj_results = np.zeros((len(dimensions), runs))
+        for i, D in enumerate(dimensions):
+            poly = PlotPolySum(D)
+            d = poly.d
+
+            alpha = 0.05 # stepsize
+            max_iter = 200
+            epsilon = 1e-3
+            for seed in range(runs):
+                print('D = {}\nrun = {}'.format(D, seed))
+                mu, obj = pgd(poly, L, D, alpha=alpha, max_iter=max_iter, seed=seed)
+                obj_results[i, seed] = obj
+
+        np.save('obj_results_D{}-{}.npy'.format(dimensions[0], dimensions[-1]), obj_results)
 
 
 if __name__ == '__main__':

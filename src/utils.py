@@ -276,8 +276,40 @@ class PlotPolySum(PolySupport):
 
         super().__init__(coefficients, powers)
 
+def pgd(poly, L, D, alpha=0.1, max_iter=200, epsilon=1e-3, seed=394829):
+    d = poly.d
+    random = np.random.default_rng(seed=seed)
+    mu = random.uniform(low=-1.0, high=1.0, size=(L, D, 2*d+1))
 
+    for i in range(max_iter):
+        if i % 25 == 0 or i > max_iter - 10:
+            print('\ni = {}'.format(i))
+        gradient = grad_objective(mu, poly.coefficients, poly.powers, L, D, d)
+        gradient[:,:,0] = np.zeros((L, D))
+        if i % 25 == 0 or i > max_iter - 10:
+            print('mu_i = {}'.format(mu))
+        step_mu = mu - alpha * gradient
+        for l in range(L):
+            for j in range(D):
+                step_matrix = construct_matrix(step_mu[l,j,:])
+                #projected_matrix = dykstra(step_matrix)
+                projected_matrix = alternating(step_matrix)
+                mu[l,j,:] = construct_mu(projected_matrix)
 
+        if i % 25 == 0 or i > max_iter - 10:
+            print('grad = {}'.format(gradient))
+            print('step_mu = {}'.format(step_mu))
+            print('mu_(i+1) = {}'.format(mu))
+            print(new_objective(mu, poly.coefficients, poly.powers, L, D) / L)
+
+        magnitude = jnp.sum(gradient * gradient)
+        if magnitude < epsilon * (L * L) * (D * D) * d:
+            print('break at i = {}'.format(i))
+            np.save('mu.npy', mu)
+            return mu, new_objective(mu, poly.coefficients, poly.powers, L, D) / L
+
+    np.save('mu.npy', mu)
+    return mu, new_objective(mu, poly.coefficients, poly.powers, L, D) / L
 
 # Define Lagrange multipliers structure, shaped to match up with the
 # different matrices for which it is penalizing constraints.
@@ -1077,7 +1109,7 @@ def project_C_1(matrix):
     """
     proj = project_hankel(matrix)
     proj[0,0] = 1
-    np.clip(proj, a_min=-1, a_max=1, out=proj)
+    #np.clip(proj, a_min=-1, a_max=1, out=proj)
     return proj
 
 def project_C_2(matrix):
@@ -1112,6 +1144,25 @@ def dykstra(matrix, f=project_C_1, g=project_C_2, max_iter=1_000, epsilon=1e-4):
             return y_t
 
         h_t = h_next
+
+    return y_t
+
+def alternating(matrix, f=project_C_1, g=project_C_2, max_iter=1_000, epsilon=1e-4):
+    """
+    Calculate the projection of matrix onto the intersection of two convex sets C_1, C_2,
+    given functions f and g which project a symmetric matrix onto them respectively.
+    """
+    y_t = matrix
+    h_t = matrix
+    p_t = np.zeros_like(matrix)
+    q_t = np.zeros_like(matrix)
+    for i in range(max_iter):
+        y_next = f(g(y_t))
+        if (np.linalg.norm(f(y_next) - y_next, ord='fro') < epsilon and
+            np.linalg.norm(g(y_next) - y_next, ord='fro') < epsilon):
+            return y_next
+
+        y_t = y_next
 
     return y_t
 
