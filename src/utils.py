@@ -303,7 +303,7 @@ def pgd(poly, L, D, alpha=0.1, max_iter=200, epsilon=1e-3, seed=394829):
             print(new_objective(mu, poly.coefficients, poly.powers, L, D) / L)
 
         magnitude = jnp.sum(gradient * gradient)
-        if magnitude < epsilon * (L * L) * (D * D) * d:
+        if magnitude < epsilon * L * D * d:
             print('break at i = {}'.format(i))
             np.save('mu.npy', mu)
             return mu, new_objective(mu, poly.coefficients, poly.powers, L, D) / L
