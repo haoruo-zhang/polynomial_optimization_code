@@ -9,7 +9,6 @@ import numpy as np
 import sympy as sp
 from scipy.linalg import block_diag, hankel
 from scipy.optimize import minimize
-import torch
 import itertools
 
 # The support of the polynomial objective function
